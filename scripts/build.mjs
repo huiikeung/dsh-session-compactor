@@ -20,7 +20,10 @@ copyFileSync(join(root, 'src', 'index.js'), join(libDir, 'index.js'))
 // 绕开 loader 对 lib/index.js 的陈旧模块缓存。
 copyFileSync(join(root, 'src', 'index.js'), join(libDir, 'index.live.js'))
 
-// 运行期 peer junction：优先 DSH_HOME，其次 ~/.dsh。
+// 运行期 peer junction（可选）：优先 DSH_HOME，其次 ~/.dsh。
+// 该步骤只为「独立 / dev_stage 热装配」时的模块解析服务；经 `dsh plugin add`
+// 正常安装到 profile 时，import 由 pnpm 的 node_modules 直接解析，link 只是
+// 冗余的便利。因此任何 peer 缺失或链接失败都只告警、绝不让安装失败。
 const dshHome = process.env.DSH_HOME || join(homedir(), '.dsh')
 const profileNodeModules = join(dshHome, 'profiles', 'node_modules')
 const peers = [
@@ -30,18 +33,37 @@ const peers = [
   'dsh-llm',
 ]
 const linkRoot = join(root, 'node_modules', '@deepseek-ai')
-mkdirSync(linkRoot, { recursive: true })
-
-for (const peer of peers) {
-  const target = join(profileNodeModules, '@deepseek-ai', peer)
-  if (!existsSync(join(target, 'package.json'))) {
-    console.error(`build: peer package missing at ${target} (DSH_HOME=${dshHome})`)
-    process.exit(1)
+let linked = 0
+let linkWarnings = 0
+try {
+  mkdirSync(linkRoot, { recursive: true })
+  for (const peer of peers) {
+    const target = join(profileNodeModules, '@deepseek-ai', peer)
+    if (!existsSync(join(target, 'package.json'))) {
+      linkWarnings += 1
+      console.warn(`build: (skip, optional) peer ${peer} not found at ${target}; package imports peer through profile node_modules`)
+      continue
+    }
+    const link = join(linkRoot, peer)
+    try {
+      rmSync(link, { recursive: true, force: true })
+      symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir')
+      linked += 1
+      console.log(`build: linked ${peer} -> ${target}`)
+    } catch (error) {
+      linkWarnings += 1
+      console.warn(
+        `build: (skip, optional) failed to link ${peer}: `
+        + (error instanceof Error ? error.message : String(error)),
+      )
+    }
   }
-  const link = join(linkRoot, peer)
-  rmSync(link, { recursive: true, force: true })
-  symlinkSync(target, link, process.platform === 'win32' ? 'junction' : 'dir')
-  console.log(`build: linked ${peer} -> ${target}`)
+} catch {
+  linkWarnings += 1
+  console.warn('build: (skip, optional) peer linking step unavailable')
+}
+if (linked === 0 && linkWarnings > 0) {
+  console.log('build: lib output is independent of peer linking (pnpm resolves peers at runtime)')
 }
 
 console.log('build: lib/index.js ready')

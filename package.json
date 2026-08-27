@@ -45,6 +45,8 @@
   },
   "scripts": {
     "build": "bash scripts/build.sh",
-    "build:client": "node scripts/build-client.mjs"
+    "build:client": "node scripts/build-client.mjs",
+    "prepare": "bash scripts/build.sh",
+    "prepack": "bash scripts/build.sh"
   }
 }
