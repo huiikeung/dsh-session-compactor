@@ -187,23 +187,71 @@ DSH 的 `dsh-web-app` 会禁用宿主层的压缩后端，压缩由每个 **agen
 
 ## 安装
 
+本插件的正式包名是 `@dsh-external/dsh-context-compactor`，已声明
+`dsh.bundle.patch`，因此用 `dsh plugin --profile <profile> add <spec>` 安装后会被
+自动挂成该 profile 的 layer（写进 `dsh.profile.bundles`），无需再手工配置。
+
+### 方式一：本地 tar 包（最直接）
+
+先构建出可安装的 tgz（或直接用仓库根目录已生成的
+`dsh-external-dsh-context-compactor-<version>.tgz`）：
+
+```bash
+cd /path/to/dsh-context-compactor
+pnpm pack
+# 输出：dsh-external-dsh-context-compactor-0.6.0.tgz
+```
+
+然后安装：
+
+```bash
+dsh plugin --profile web add /path/to/dsh-context-compactor/dsh-external-dsh-context-compactor-0.6.0.tgz
+```
+
+### 方式二：本地源码目录
+
+```bash
+dsh plugin --profile web add /path/to/dsh-context-compactor
+```
+
+### 方式三：Git（SSH / HTTPS）
+
+```bash
+dsh plugin --profile web add git+git@github.com:huiikeung/dsh-context-compactor.git
+# 或 HTTPS：
+dsh plugin --profile web add git+https://github.com/huiikeung/dsh-context-compactor.git
+```
+
+> Git/本地路径安装时，pnpm 会执行包的 `prepare` 脚本自动完成 `src → lib` 构建；
+> tar 包安装则直接使用包内已构建好的 `lib/`。
+
+### 安装后
+
+1. **刷新 / 重启 DSH web**，让 profile 的 bundle 层装配并构建前端；
+2. 输入框上方会出现「压缩总结」「提示增强」工具条；
+3. 输入 `/context-status` 查看 token 用量与阈值，`/reflect`、`/truncations`、
+   `/compact` 等命令即可用。
+
+### 撤销安装
+
+```bash
+dsh plugin --profile web remove @dsh-external/dsh-context-compactor
+```
+
+### 手动 / 开发模式（可选，非必须）
+
+如果只是在本仓库里直接开发调试，不需要走 `dsh plugin add`：
+
 ```bash
 # 1. 构建（host: src → lib/index.js；client: src/client → lib/client.js）
 bash scripts/build.sh
 
 # 2. 加入 profile（写入 dependencies + bundles，重启后自动装配）
-#    profile 包名：@dsh-external/dsh-context-compactor
-#    根入口 index.js 同时兼容「按包根 index.js 导入」的 loader 约定。
-#    浏览器按钮无需额外配置：clientModules 会通过 dsh.client 清单 +
-#    exports["./client"] 自动发现并伺服 lib/client.js。
 
 # 3. 热装配（当前进程立即生效）
 #    dev_install_package / dev_inject_plugin 指向本目录
 #    若遇到 loader 模块缓存中毒，重启 DSH 即可（bundle 路径不依赖热装配）。
 ```
-
-装配后刷新页面，输入框上方会出现「压缩总结」工具条；输入
-`/context-status` 可查看用量与阈值。
 
 ## 说明
 

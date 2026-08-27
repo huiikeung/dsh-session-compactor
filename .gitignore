@@ -2,3 +2,5 @@ node_modules/
 *.tgz
 backup-*
 apply-error.log
+# 内部草稿/原始笔记，不纳入版本控制
+dsh_5个补丁_完整提取.md
