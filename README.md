@@ -109,6 +109,17 @@ pruneThresholdChars: 8192
 pruneHeadChars: 4096
 pruneTailChars: 1024
 registerCommands: true
+
+# —— 《DSH 5 个补丁》整合功能默认开关 ——
+preserveLargeToolResults: true  # 补丁1：超大工具结果压缩前落盘防丢
+offloadThresholdChars: 204800   # 超过该字符数（默认 200KB）视为“长文本”
+offloadChunkChars: 131072       # 落盘时按 128KB 分块
+pressureAwareCompaction: true   # 补丁2：压力感知压缩深度（>0.9 自动压得更狠）
+scheduledReflection: true       # 补丁3：每日定时反思（非破坏性全局摘要）
+scheduleIntervalHours: 24       # 反思冷却期
+scheduleCheckMinutes: 30        # 调度器节拍
+scheduleMinNewTokens: 20000     # 自上次反思起新增 ≥20k tokens 才触发
+trackToolTruncations: true      # 补丁4：工具截断追踪（写 truncations.jsonl）
 ```
 
 也可以给指定模型写精确覆盖策略：
@@ -121,6 +132,30 @@ modelPolicies:
     retainRatio: 0.2
     maxOverflowRetries: 3
 ```
+
+## 整合自《DSH 5 个补丁》的功能
+
+`docs/dsh_5个补丁_完整提取.md` 里记载了一套针对 DSH 记忆/上下文系统的 5 个补丁。
+其中与本压缩插件直接相关、且能在 DSH 插件架构里安全落地的 4 项已整合进本插件：
+
+| 补丁 | 原始思路 | 在本插件里的落地 |
+| --- | --- | --- |
+| 1 长文本防丢 | `add(prevent_compaction=True)` 分块保存超大文本，避免压缩/截断丢失 | 压缩前把 **>200KB 的超大工具结果**原样分块落盘到 `~/.dsh/storages/dsh-context-compactor/preserved/<session>/<seq>.<callId>.part-N.md`，磁盘保留索引，幂等防重复；完整原文绝不因 80% 压缩或工具裁剪而丢 |
+| 2 压力感知 | `recall(context_pressure=…)` 高压少召回、低压多召回 | `compactIfNeeded` 计算上下文压力 `totalTokens/window`；压力 >0.9 时跳过最宽松总结预算、压缩得更狠；把压力写进日志与 checkpoint 文件头 |
+| 3 每日定时反思 | `scheduled_daily_reflection()` 24h 冷却，定时把核心记忆总结存回 | 新增 `/reflect` 命令 + 后台调度器：非破坏性对全部消息跑「全局详细总结」，**追加**写 `reflections/<session>.md`；默认 24h 冷却 + 每会话新增 ≥20k tokens 才触发 |
+| 4 工具截断追踪 | `record_tool_result` 表记录被截断的调用 | 每次 `ToolResultPruner.pruneSession` 后把被裁剪的结果写成一行 JSON（`tool_name/args_summary/result_size/was_truncated/created_at`）追加到 `truncations.jsonl`；`/truncations` 可查，发现 `result_size` 小于原始输出就应改用分块方式重读 |
+| 5 实体提取降噪 | 过滤虚词、按上下文推断实体类型 | **本压缩插件不含知识图谱/实体提取**，此补丁针对独立的 `fragment_store` 记忆库，故未实现；如需可做成独立记忆插件 |
+
+新增命令：
+
+| 命令 | 作用 |
+| --- | --- |
+| `/reflect` | 立即生成一次非破坏性每日反思摘要并追加到 `reflections/` |
+| `/truncations` | 查看最近被截断的工具结果（可带 `<sessionId>` 过滤） |
+
+> 说明：补丁 2 的“上下文压力”沿用插件既有的 Token Meter (`ctx.tokenMeter`)，不改动
+> 会话历史；补丁 3 的反思是**非破坏性**的——只生成摘要文件与日志，不像 80% 压缩那样
+> 替换对话，因此可安全定时运行。
 
 ## 工作原理（与官方架构一致）
 
