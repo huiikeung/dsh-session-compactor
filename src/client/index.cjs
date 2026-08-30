@@ -34,24 +34,16 @@ const STYLES = `
   margin: 0 auto;
   padding: 4px 5px 4px 12px;
   display: flex;
-  /* 窄屏（手机）下内容超出时横向滑动，避免溢出输入框 */
+  /* 窄屏（手机）下内容超出时横向滑动，避免溢出输入框；滚动条隐藏，可触摸滑动 */
   flex-wrap: nowrap;
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-  scrollbar-color: var(--dsw-alias-border-l2) transparent;
+  scrollbar-width: none;
   overscroll-behavior-inline: contain;
 }
 [data-dsh-context-compactor-dock] .cc-bar::-webkit-scrollbar {
-  height: 5px;
-}
-[data-dsh-context-compactor-dock] .cc-bar::-webkit-scrollbar-thumb {
-  background: var(--dsw-alias-border-l2);
-  border-radius: 3px;
-}
-[data-dsh-context-compactor-dock] .cc-bar::-webkit-scrollbar-track {
-  background: transparent;
+  display: none;
 }
 [data-dsh-context-compactor-dock] .cc-meter {
   color: var(--dsw-alias-label-tertiary);
