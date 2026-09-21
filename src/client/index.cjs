@@ -128,9 +128,25 @@ const STYLES = `
 }
 [data-dsh-context-compactor-settings] textarea.ccs-input {
   height: auto;
-  min-height: 72px;
+  min-height: 132px;
   padding: 8px 12px;
   resize: vertical;
+  /* 占位符（内置默认模板）按原样换行显示，不然灰色文字会糊成一团 */
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  line-height: 1.6;
+}
+[data-dsh-context-compactor-settings] textarea.ccs-input::placeholder {
+  color: var(--dsw-alias-label-tertiary);
+  opacity: 1;
+}
+/* 同一字段的多个动作按钮（填入默认模板 / 恢复默认）横排 */
+[data-dsh-context-compactor-settings] .ccs-fieldActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 2px;
 }
 [data-dsh-context-compactor-settings] .ccs-input:focus-visible {
   border-color: var(--dsw-alias-brand-primary);
@@ -479,7 +495,18 @@ const NUMBER_FIELDS = [
   { field: 'maxTokens', label: '摘要最大 Token 数', hint: '单次总结输出的 Token 上限（≥256）。', min: 256 },
 ]
 
-const PROMPT_FIELD = { field: 'compressPrompt', label: '压缩指令（compressPrompt）', hint: '自定义发给模型的总结指令；留空使用插件内置中文模板。清空并保存即恢复默认。' }
+const PROMPT_FIELD = { field: 'compressPrompt', label: '压缩指令（compressPrompt）', hint: '自定义发给模型的总结指令；灰色文字是内置默认模板（留空即用它）。清空并保存即恢复默认。' }
+
+/**
+ * 内置默认压缩指令全文：构建时由 scripts/build-client.mjs 从 src/index.js 的
+ * DETAIL_SUMMARY_INSTRUCTION 注入（单一事实来源，不会两份漂移）。
+ * 裸源码/测试里没有这个常量时退化成 null，调用方各自兜底。
+ */
+function builtinCompressPrompt() {
+  return typeof DEFAULT_COMPRESS_PROMPT === 'string' && DEFAULT_COMPRESS_PROMPT.length > 0
+    ? DEFAULT_COMPRESS_PROMPT
+    : null
+}
 
 function fieldText(value) {
   if (value === undefined || value === null) return ''
@@ -590,6 +617,8 @@ function CompactSettingsCard(props) {
         type: 'text',
         inputMode: 'decimal',
         value: current[f.field],
+        // 灰色占位 = 该项的 cordis 配置默认值（用户层留空时回落到它）
+        placeholder: base[f.field] === undefined || base[f.field] === null ? '' : String(base[f.field]),
         disabled: !writable || saving,
         'aria-invalid': (() => {
           const text = current[f.field]
@@ -612,14 +641,26 @@ function CompactSettingsCard(props) {
       React.createElement('textarea', {
         className: 'ccs-input',
         value: current[PROMPT_FIELD.field],
+        // 灰色占位 = 内置默认模板全文：用户层没填时，一眼能看到"默认到底长什么样"
+        placeholder: builtinCompressPrompt() ?? '（内置默认模板不可用：宿主未加载本插件服务端）',
         disabled: !writable || saving,
         onChange: (event) => edit(PROMPT_FIELD.field, event.target.value),
       }),
       React.createElement('p', { className: 'ccs-hint' }, PROMPT_FIELD.hint),
-      React.createElement('button', {
-        type: 'button', className: 'ccs-reset', disabled: !writable || saving,
-        onClick: () => resetField(PROMPT_FIELD.field),
-      }, '恢复默认'),
+      React.createElement(
+        'div',
+        { className: 'ccs-fieldActions' },
+        React.createElement('button', {
+          type: 'button',
+          className: 'ccs-reset',
+          disabled: !writable || saving || builtinCompressPrompt() === null,
+          onClick: () => { setFailed(false); setDraft({ ...current, [PROMPT_FIELD.field]: builtinCompressPrompt() ?? '' }) },
+        }, '填入默认模板'),
+        React.createElement('button', {
+          type: 'button', className: 'ccs-reset', disabled: !writable || saving,
+          onClick: () => resetField(PROMPT_FIELD.field),
+        }, '恢复默认'),
+      ),
     ),
     React.createElement(
       'div',

@@ -342,6 +342,53 @@ class FakeSettingsScope {
   check('不再把未绑定方法直接传给 React', !src.includes('React.useSyncExternalStore(scope.subscribe'))
 }
 
+
+/* ------------------------------------------------------------------ *
+ * 6) 设置页占位符：数字字段灰显 cordis 默认值；compressPrompt 灰显内置模板全文
+ * ------------------------------------------------------------------ */
+{
+  const React = require('react')
+  const ReactDOMServer = require('react-dom/server')
+  const { captured } = loadBundle(React)
+  const Card = captured['settings.section']
+  // 用户层全空：section 里没有 compressPrompt，base 里有数字默认值
+  const scope = new FakeSettingsScope()
+  scope.snapshot = {
+    status: 'ready',
+    value: {},                                        // 用户层什么都没设
+    base: { thresholdRatio: 0.8, retainRatio: 0.16, retainTokens: 0, maxTokens: 12288, compressPrompt: '' },
+    user: {},
+    revision: 7,
+    writable: true,
+    mode: 'host',
+  }
+  const html = ReactDOMServer.renderToStaticMarkup(React.createElement(Card, { scope }))
+  check('数字输入框有灰色占位（cordis 默认值）',
+    html.includes('placeholder="0.8"') && html.includes('placeholder="12288"'),
+    (html.match(/placeholder="[^"]*"/g) || []).join(' '))
+  check('压缩指令框灰显内置模板全文', html.includes('placeholder="你是「全局上下文总结压缩引擎」'))
+  check('内置模板占位含 4 个章节名',
+    html.includes('核心任务与当前进度') && html.includes('待解决问题') && html.includes('重要文件或代码位置'))
+  check('占位符里没有残留转义换行破坏（原样多行文本）', !html.includes('\\n'))
+  check('有「填入默认模板」按钮', html.includes('填入默认模板'))
+  check('仍有「恢复默认」按钮', html.includes('恢复默认'))
+
+  // 用户层已填值时：占位符不该顶掉 value（React 语义：有值就看不到占位符）
+  const filled = new FakeSettingsScope()
+  filled.snapshot = {
+    status: 'ready',
+    value: { compressPrompt: '我自己的指令' },
+    base: { thresholdRatio: 0.8, retainRatio: 0.16, retainTokens: 0, maxTokens: 12288, compressPrompt: '' },
+    user: { compressPrompt: '我自己的指令' },
+    revision: 8,
+    writable: true,
+    mode: 'host',
+  }
+  const html2 = ReactDOMServer.renderToStaticMarkup(React.createElement(Card, { scope: filled }))
+  check('用户层有值时输入框显示该值', html2.includes('我自己的指令'))
+  check('用户层有值时 placeholder 仍在 DOM 里（浏览器不显示而已）', html2.includes('placeholder="你是「全局上下文总结压缩引擎」'))
+}
+
 const failed = results.filter((r) => !r.ok)
 console.log('\n' + (results.length - failed.length) + '/' + results.length + ' passed')
 if (failed.length > 0) process.exit(1)

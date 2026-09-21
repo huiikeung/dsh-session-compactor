@@ -12,10 +12,29 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PACKAGE_ID = '@dsh-external/dsh-context-compactor'
 
 const source = readFileSync(join(root, 'src', 'client', 'index.cjs'), 'utf8')
+
+/**
+ * 把 host 半边内置的默认压缩指令（src/index.js 的 DETAIL_SUMMARY_INSTRUCTION）在构建时
+ * 注入 client bundle，设置页的 compressPrompt 输入框用它当灰色 placeholder。
+ * 单一事实来源：改默认模板只改 src/index.js，客户端自动跟着变，不会两份漂移。
+ * 客户端用 `typeof DEFAULT_COMPRESS_PROMPT === 'string'` 兜底，所以裸源码在测试里也能跑。
+ */
+function readDefaultCompressPrompt() {
+  const host = readFileSync(join(root, 'src', 'index.js'), 'utf8')
+  const matched = /const DETAIL_SUMMARY_INSTRUCTION = (\[[\s\S]*?\])\.join\('\\n'\)/.exec(host)
+  if (matched === null) throw new Error('build-client: DETAIL_SUMMARY_INSTRUCTION not found in src/index.js')
+  const lines = new Function(`return (${matched[1]})`)()
+  if (!Array.isArray(lines)) throw new Error('build-client: DETAIL_SUMMARY_INSTRUCTION is not an array literal')
+  return lines.join('\n')
+}
+
+const injected = `const DEFAULT_COMPRESS_PROMPT = ${JSON.stringify(readDefaultCompressPrompt())};\n`
+
 const bundle = [
   `window.__ModuleLoader__.load({ id: ${JSON.stringify(PACKAGE_ID)}, factory: (require) => {`,
   '  var module = { exports: {} };',
   '  var exports = module.exports;',
+  injected,
   source,
   '  return module.exports;',
   '} });',
