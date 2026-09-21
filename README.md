@@ -72,12 +72,17 @@ modelPolicies:
 - 超过 `pruneThresholdChars`（默认 8192 字符）的工具输出，保留头 + 标记 + 尾；
 - 只裁剪工具结果文本，**对话历史一律走详细总结**，绝不粗暴截断。
 
-### 5. 输入框下方：官方「上下文用量」圆环即触发器（0.6.5 起）
+### 5. 输入框下方：官方「上下文用量」圆环即触发器（0.6.5 起，0.6.6 修正识别）
 
 - 浏览器半边通过 `dsh.client` 清单自动发现，注册到 `conversation.composer.dock`
   （输入框**下方**那一行，和官方 ContextMeter 圆环同一排）；
 - **默认不占任何位置**：插件不再显示自己的胶囊/ meter，只保留官方的
   「上下文用量」圆环（`contextPressure` 投影，到 80% 官方会自行高亮）；
+- **只有圆环是触发器**：同一行第一个模块是 dsh-client-ui-chat 的 StatsPills
+  （「x 轮 x 步」/ 用量 pill，自带 breakdown 面板），它的按钮和圆环带着
+  一模一样的 `aria-haspopup="dialog"[aria-expanded]` 模式且 DOM 更靠前 ——
+  0.6.6 起用「填充环带 `stroke-dasharray`」这一圆环独有结构区分，点 pill
+  不再误触发我们的展开；点圆环才展开；
 - **点击圆环**即在它**右侧**展开操作条（DOM 顺序在圆环之前，用 CSS `order` 换序）：
   - 「压缩总结」：点击通过 `remote.commands.execute(sessionId, '/compact')`
     立即触发全局详细总结压缩，按钮会显示「压缩总结中…」并在条上回显结果；

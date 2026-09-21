@@ -19,9 +19,6 @@ const inject = ['slots', 'remote', 'remote.commands', 'settingsScope']
 
 const CC_NS = 'dsh-context-compactor'
 
-/** 官方 ContextMeter 触发器（圆环按钮）的稳定识别特征：整包内唯一。 */
-const METER_TRIGGER_SELECTOR = 'button[aria-haspopup="dialog"][aria-expanded]'
-
 const STYLES = `
 /* 排到官方上下文圆环右侧：dock 行是 flex，我们的条目 DOM 在圆环之前，用 order 换序；
    收起时 display:none，不占位也不产生 flex gap。 */
@@ -204,18 +201,37 @@ function installStyles() {
 }
 
 /**
+ * 官方 ContextMeter 圆环按钮。注意：dsh-client-ui-chat 的 StatsPills
+ * （第一个「x 轮 x 步」/用量 pill）按钮带着一模一样的
+ * aria-haspopup="dialog"[aria-expanded] 模式，且 DOM 顺序更靠前 —— 只按 aria
+ * 选会把 pill 误认成圆环（点圆环没反应、点 pill 反而触发）。圆环的填充环
+ * 带 stroke-dasharray，pill 图标是 path / 无 dasharray 的 circle，以此区分。
+ */
+const METER_TRIGGER_SELECTOR = 'button[aria-haspopup="dialog"][aria-expanded]'
+
+function isMeterButton(btn) {
+  if (!btn || typeof btn.querySelector !== 'function') return false
+  if (typeof btn.getAttribute === 'function' && btn.getAttribute('aria-haspopup') !== 'dialog') return false
+  return btn.querySelector('circle[stroke-dasharray]') !== null
+}
+
+/**
  * 向上遍历祖先，找到 root 所在 dock 行里的官方上下文圆环按钮。
  * 不假设 slot 条目是否被包 wrapper、也不假设圆环 button 的嵌套深度
  * （ContextMeter 的 button 嵌在 span 里）：从 root 逐级上溯，第一个
  * 「包含圆环且圆环不在 root 子树内」的祖先即所在行。纯函数，便于测试。
  */
 function findMeterTrigger(root) {
-  if (!root || typeof root.querySelector !== 'function') return undefined
+  if (!root || typeof root.querySelectorAll !== 'function') return undefined
   let el = root
   let depth = 0
   while (el && depth < 8) {
-    const hit = el.querySelector(METER_TRIGGER_SELECTOR)
-    if (hit && !root.contains(hit)) return hit
+    if (typeof el.querySelectorAll === 'function') {
+      const candidates = el.querySelectorAll(METER_TRIGGER_SELECTOR)
+      for (const btn of candidates) {
+        if (isMeterButton(btn) && !root.contains(btn)) return btn
+      }
+    }
     el = el.parentElement
     depth += 1
   }
@@ -227,7 +243,7 @@ function meterTriggerFrom(event, root) {
   const target = event && event.target
   if (!target || typeof target.closest !== 'function') return undefined
   const hit = target.closest(METER_TRIGGER_SELECTOR)
-  if (!hit) return undefined
+  if (!hit || !isMeterButton(hit)) return undefined
   const meter = findMeterTrigger(root)
   return meter !== undefined && hit === meter ? hit : undefined
 }
