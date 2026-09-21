@@ -322,3 +322,40 @@ node tests/client-dock.test.mjs
   `summarizationProvider` + `summarizationModel` 指定专门的总结模型。
 - 单条消息本身就超过模型窗口时，任何表面压缩都无法修复——这种情况需要
   换更大窗口的模型或拆小输入。
+
+## 7. Headroom 上下文压缩（MCP 工具形态，可选叠加层）
+
+除了本插件的「历史总结式压缩」，还可以叠加 [Headroom](https://github.com/headroomlabs-ai/headroom)：
+它在**内容进模型之前**压掉工具输出 / 日志 / JSON / 代码（SmartCrusher 压 JSON、
+CodeCompressor 压 AST、原文进本地 CCR 仓可随时取回），和本插件是**不同层、可叠加**——
+它让上下文本身更小，本插件的 80% 阈值就作用在"已经更小的上下文"上。
+
+接法是 MCP 工具（**非常驻进程**，DSH 的 mcp-client 自己拉 stdio 子进程）：
+
+```bash
+# 1) 装（venv 放在 app 数据目录，不污染系统 python）
+mkdir -p /vol1/@appdata/deepseek.harness/headroom
+python3 -m venv /vol1/@appdata/deepseek.harness/headroom/venv
+/vol1/@appdata/deepseek.harness/headroom/venv/bin/pip install "headroom-ai[mcp]"
+
+# 2) 注册进 web profile（幂等，留 .bak）
+node scripts/install-headroom-mcp.mjs
+
+# 3) 重启 dsh 后生效；探针自检：
+node scripts/probe-headroom-mcp.mjs
+```
+
+装好后 agent 会多三个工具：`headroom_compress(content)` / `headroom_retrieve(hash)` /
+`headroom_stats`。实测：400 条重复 JSON 记录 43KB → **省 33%**；真实 harness.log
+（混了大量重复日志行）→ 省 12.5%（`router:log:0.87`，日志类压得轻）。
+
+**和代理方式的区别（重要）**：MCP 是**按需**——模型自己决定什么时候调 `headroom_compress`，
+不是"每个请求自动压"。要真正每次自动压缩，得走 `headroom proxy --port 8787` 再把 DSH 的
+LLM 渠道 baseUrl 指向它；代价是 NAS 上多养一个 Python 常驻进程（又回到"谁看住它"的问题）、
+密钥转发、多一跳延迟，且总结器那条路也要排除在代理外（否则总结的是被压过的历史）。
+
+配置要点（`install-headroom-mcp.mjs` 已写进 patch）：`command` 用 venv 里的**绝对路径**
+（mcp-client 的子进程 env 是清洗过的，PATH 不继承，写 `headroom` 起不来）；
+`HEADROOM_BEACON=off` 关掉默认开启的匿名用量上报；`HEADROOM_CONFIG_DIR` /
+`HEADROOM_WORKSPACE_DIR` 把配置与 CCR/统计写到 app 数据目录，不往 `/root/.headroom` 写。
+
