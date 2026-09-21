@@ -83,14 +83,16 @@ modelPolicies:
   一模一样的 `aria-haspopup="dialog"[aria-expanded]` 模式且 DOM 更靠前 ——
   0.6.6 起用「填充环带 `stroke-dasharray`」这一圆环独有结构区分，点 pill
   不再误触发我们的展开；点圆环才展开；
-- **点击圆环**即在它**右侧**展开操作条（DOM 顺序在圆环之前，用 CSS `order` 换序）：
+- **点击圆环 = 官方 breakdown 弹窗照常弹出**（system/tools/messages 分布，
+  和点其它官方组件一样），**同时**在圆环**右侧**展开我们的操作条
+  （DOM 顺序在圆环之前，用 CSS `order` 换序）—— 两个一起出、一起收：
   - 「压缩总结」：点击通过 `remote.commands.execute(sessionId, '/compact')`
     立即触发全局详细总结压缩，按钮会显示「压缩总结中…」并在条上回显结果；
   - 「提示增强」：这是合并自 [LLM-Prompt-Enhancer](https://github.com/RunOnCodes/LLM-Prompt-Enhancer)
     的功能，点击读取输入框草稿，调用 DSH 当前模型增强为更清晰的提示词，
     自动写回输入框（无需额外 Groq Key）；按钮显示「增强中…」并在条上回显结果；
-- 圆环自此只作本插件的触发器：官方自带的 breakdown 面板被拦截（同口径数据
-  仍可用 `/context-status` 查看）；再点一次圆环或点页面别处即收起；
+- 再点一次圆环，弹窗与操作条一起收起；点页面别处操作条收起（官方弹窗按它
+  自己的规则处理）；
 - agent 运行中按钮自动禁用；全新空白会话不显示。
 
 ### 5.1 设置页配置卡片（0.6.3 新增）

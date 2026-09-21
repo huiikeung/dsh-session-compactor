@@ -5,7 +5,7 @@
  * 两个入口：
  *  1. 输入框下方 dock 行里，官方「上下文用量」圆环（ContextMeter）的右侧：
  *     点击圆环展开「压缩总结 / 提示增强」两个按钮，默认收起不占位；
- *     圆环自此只作我们的触发器（官方 breakdown 面板被拦截，数据仍可 /context-status 看）。
+ *     点击圆环 = 官方 breakdown 弹窗照常弹出 + 右侧展开我们的两个按钮，一起出/一起收。
  *  2. 设置 → 插件（plugins.item）里的配置卡片：直接读写服务端注册的
  *     settings namespace `dsh-context-compactor`（压缩阈值 / 保留量 / 压缩指令），
  *     保存后服务端热更新生效，无需重启。
@@ -267,7 +267,8 @@ function CompactDock(props) {
   const enhancingRef = React.useRef(false)
   const timerRef = React.useRef(null)
 
-  // 官方圆环即触发器：捕获阶段接住点击、切换展开态，并拦掉官方 breakdown 面板。
+  // 官方圆环即触发器：捕获阶段接住点击、切换我们的展开态，但**不**拦事件 ——
+  // 官方自带的 breakdown 弹窗照常弹出，两个一起出（点圆环 = 弹窗 + 右侧按钮）。
   // 点在别处则收起；圆环/自身按钮上的 pointerdown 不收起（交给 click 切换）。
   React.useEffect(() => {
     if (typeof document === 'undefined') return
@@ -275,7 +276,6 @@ function CompactDock(props) {
       const root = rootRef.current
       if (!root) return
       if (meterTriggerFrom(event, root) === undefined) return
-      event.stopPropagation()
       setOpen((v) => !v)
     }
     const onCapturePointerDown = (event) => {
