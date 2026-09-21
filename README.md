@@ -88,6 +88,12 @@ modelPolicies:
   （DOM 顺序在圆环之前，用 CSS `order` 换序）—— 两个一起出、一起收：
   - 「压缩总结」：点击通过 `remote.commands.execute(sessionId, '/compact')`
     立即触发全局详细总结压缩，按钮会显示「压缩总结中…」并在条上回显结果；
+    **0.6.9 起**：点击后立刻显示「已开始压缩…大会话可能需要几分钟」（大会话一次
+    压缩要几分钟，没有提示用户会以为没反应）；结果按会话记在模块级，压缩期间
+    组件被重挂载（一次压掉几百条历史 / 切去设置页再回来）也不会丢结果；重复
+    点击不会真的再发一次 `/compact`（服务端会以 busy 打回），而是提示
+    「压缩已在进行中」；服务端的英文结果/报错会中文化（如
+    `已压缩 574 条历史（约 190521 tokens）`、`上一次压缩还在进行中…`）；
   - 「提示增强」：这是合并自 [LLM-Prompt-Enhancer](https://github.com/RunOnCodes/LLM-Prompt-Enhancer)
     的功能，点击读取输入框草稿，调用 DSH 当前模型增强为更清晰的提示词，
     自动写回输入框（无需额外 Groq Key）；按钮显示「增强中…」并在条上回显结果；
@@ -105,7 +111,14 @@ modelPolicies:
   保留比例 / 保留 Token 数 / 摘要最大 Token 数 / 压缩指令），每项带「恢复默认」；
 - 保存即写入用户层并**热更新生效**（下一次压缩检查即采用新值），某项留空
   等同「恢复默认」（回落到 cordis 配置或内置模板）；
-- 宿主为内存模式或插件服务端未加载时，页面会显示「当前不可用」。
+- 宿主为内存模式或插件服务端未加载时，页面会显示「当前不可用」；
+  刚进去还在读宿主文档时显示「正在读取设置…」；
+- **0.6.9 修复「设置页一片空白」**：`React.useSyncExternalStore` 是以**裸函数**
+  调用 `subscribe`/`getSnapshot` 的（`this` 会丢），而 `settingsScope.bind()` 返回的
+  控制器是 class 实例、方法内部读 `this.store` —— 直接把 `scope.subscribe` /
+  `scope.getSnapshot` 传进去，渲染期就抛 `TypeError`，宿主把该 slot 条目判为崩溃
+  并**静默退场**（abdicate），页面就什么也不显示。现在一律包一层绑定后的访问器，
+  并用「类实例」形态的假 scope 做了回归测试（`tests/client-dock.test.mjs`）。
 
 ### 6. 手动命令
 
@@ -283,9 +296,15 @@ dsh plugin --profile web remove @dsh-external/dsh-context-compactor
 # 1. 构建（host: src → lib/index.js；client: src/client → lib/client.js）
 bash scripts/build.sh
 
-# 2. 加入 profile（写入 dependencies + bundles，重启后自动装配）
+# 2. 测试
+#    服务端（liveSettings / 命名空间 / 降级路径）
+node tests/live-settings.test.mjs
+#    浏览器半边（设置页绑定回归 + dock 几何 + 压缩在途去重 + 结果中文化）
+node tests/client-dock.test.mjs
 
-# 3. 热装配（当前进程立即生效）
+# 3. 加入 profile（写入 dependencies + bundles，重启后自动装配）
+
+# 4. 热装配（当前进程立即生效）
 #    dev_install_package / dev_inject_plugin 指向本目录
 #    若遇到 loader 模块缓存中毒，重启 DSH 即可（bundle 路径不依赖热装配）。
 ```
