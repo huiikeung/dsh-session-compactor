@@ -109,6 +109,8 @@ pruneThresholdChars: 8192
 pruneHeadChars: 4096
 pruneTailChars: 1024
 registerCommands: true
+compressPrompt: ''              # 自定义压缩指令；留空用内置中文 checkpoint 模板
+liveSettings: true              # 注册 settings namespace 支持热更新（见下）
 
 # —— 《DSH 5 个补丁》整合功能默认开关 ——
 preserveLargeToolResults: true  # 补丁1：超大工具结果压缩前落盘防丢
@@ -132,6 +134,19 @@ modelPolicies:
     retainRatio: 0.2
     maxOverflowRetries: 3
 ```
+
+### 热更新设置（liveSettings，0.6.2 新增）
+
+`liveSettings: true`（默认）时插件会注册 settings namespace **`dsh-context-compactor`**，暴露 5 个运行时可调项：
+
+| 键 | 说明 |
+| --- | --- |
+| `thresholdRatio` | 自动压缩阈值（0.01–0.99） |
+| `retainRatio` / `retainTokens` | 压缩后保留尾巴（`retainTokens > 0` 时优先） |
+| `maxTokens` | 总结输出 token 预算 |
+| `compressPrompt` | 自定义压缩指令；留空用内置中文 checkpoint 模板 |
+
+生效机制借鉴 dsh-auxiliary 的 `syncEngineConfig` 模式：settings 变化只写入热更新表，引擎在**下一次压力检查前**把最新值合并进引擎配置 —— 设置页改完立即对下一次压缩生效，无需重启 DSH、无需重挂引擎。`retainRatio ≥ thresholdRatio` 的非法组合会被拒绝并保留旧策略。settings 服务或 schemastery 不可用时自动降级为 cordis.patch.yml 静态配置，行为与旧版一致。`/context-status` 会显示当前生效的阈值口径（per-model 策略 > 热更新 > 静态配置）与压缩指令来源。
 
 ## 整合自《DSH 5 个补丁》的功能
 

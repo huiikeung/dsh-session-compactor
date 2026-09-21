@@ -31,6 +31,7 @@ const peers = [
   'dsh-compaction-basic',
   'dsh-compaction-tool-result-pruner',
   'dsh-llm',
+  'schemastery', // 热更新 settings schema（动态 import，缺失时功能自动降级）
 ]
 const linkRoot = join(root, 'node_modules', '@deepseek-ai')
 let linked = 0

@@ -32,6 +32,36 @@ export const name = 'dsh-context-compactor'
 /** 本模块挂载成功的引擎实例表：/compact 的兜底（引擎是 agent 无关的，可服务任意会话）。 */
 const LIVE_ENGINES = []
 
+/**
+ * 动态配置（借鉴 dsh-auxiliary 的 syncEngineConfig 模式）：
+ * settings namespace `dsh-context-compactor` 的运行时可调项。watch 到变化后
+ * 写入这里并置 dirty；引擎在每次压力检查（compactIfNeeded）前合并进 this.config，
+ * summarize 取压缩指令时也优先读这里。settings 服务 / schemastery 不可用时
+ * 保持空表，插件整体降级为 cordis.patch.yml 的静态配置，行为与旧版一致。
+ */
+const LIVE_KNOBS = {
+  dirty: false,
+  thresholdRatio: undefined,
+  retainRatio: undefined,
+  retainTokens: undefined,
+  maxTokens: undefined,
+  compressPrompt: undefined,
+}
+
+/** 把一份（不可信的）settings 快照合并进 LIVE_KNOBS；非法字段一律忽略。 */
+function applyLiveKnobs(value) {
+  if (value === undefined || typeof value !== 'object') return
+  for (const key of ['thresholdRatio', 'retainRatio', 'retainTokens', 'maxTokens']) {
+    const v = value[key]
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) LIVE_KNOBS[key] = v
+    else if (v === undefined || v === null) LIVE_KNOBS[key] = undefined
+  }
+  LIVE_KNOBS.compressPrompt = typeof value.compressPrompt === 'string' && value.compressPrompt.length > 0
+    ? value.compressPrompt
+    : undefined
+  LIVE_KNOBS.dirty = true
+}
+
 const CONFIG_KEYS = new Set([
   'enabled',
   'auto',
@@ -50,6 +80,8 @@ const CONFIG_KEYS = new Set([
   'pruneTailChars',
   'registerCommands',
   'saveSummaryFile',
+  'compressPrompt',
+  'liveSettings',
   // —— 补丁特性开关 ——
   'preserveLargeToolResults',
   'offloadThresholdChars',
@@ -78,6 +110,10 @@ const DEFAULTS = Object.freeze({
   pruneTailChars: 1024,
   registerCommands: true,
   saveSummaryFile: true,
+  // 自定义压缩指令：留空使用内置中文 checkpoint 模板（DETAIL_SUMMARY_INSTRUCTION）
+  compressPrompt: '',
+  // 注册 settings namespace 提供热更新（threshold/retain/maxTokens/compressPrompt）
+  liveSettings: true,
   // 补丁 1：超大工具结果压缩前落盘防丢
   preserveLargeToolResults: true,
   offloadThresholdChars: 200 * 1024, // 超过 200KB 视为“长文本”
@@ -366,6 +402,10 @@ function resolveConfig(raw) {
     saveSummaryFile: raw.saveSummaryFile === undefined
       ? DEFAULTS.saveSummaryFile
       : assertBoolean(raw.saveSummaryFile, 'saveSummaryFile'),
+    compressPrompt: assertOptionalString(raw.compressPrompt, 'compressPrompt'),
+    liveSettings: raw.liveSettings === undefined
+      ? DEFAULTS.liveSettings
+      : assertBoolean(raw.liveSettings, 'liveSettings'),
 
     // 补丁 1：长文本防丢
     preserveLargeToolResults: raw.preserveLargeToolResults === undefined
@@ -427,6 +467,7 @@ function engineConfig(cfg) {
     maxOverflowRetries: cfg.maxOverflowRetries,
     modelPolicies: cfg.modelPolicies.map((entry) => ({ ...entry })),
     saveSummaryFile: cfg.saveSummaryFile,
+    compressPrompt: cfg.compressPrompt,
     // 补丁特性的引擎侧开关（宿主侧定时反思配置由 apply() 直接读取）
     reflectionsEnabled: cfg.scheduledReflection,
     pressureAware: cfg.pressureAwareCompaction,
@@ -435,15 +476,6 @@ function engineConfig(cfg) {
     offloadThresholdChars: cfg.offloadThresholdChars,
     offloadChunkChars: cfg.offloadChunkChars,
   }
-}
-
-/** 单个路由目标命中的阈值（用于状态展示，与上游 merge 语义一致）。 */
-function pickThresholdRatio(cfg, target) {
-  if (target === undefined) return cfg.thresholdRatio
-  const override = cfg.modelPolicies.find(
-    (entry) => entry.provider === target.provider && entry.model === target.model,
-  )
-  return override?.thresholdRatio ?? cfg.thresholdRatio
 }
 
 function summaryFilePath(sessionId) {
@@ -672,6 +704,7 @@ class DetailedCompactionEngine extends BasicCompactionEngine {
   constructor(ctx, config = {}) {
     const {
       saveSummaryFile,
+      compressPrompt,
       reflectionsEnabled = true,
       pressureAware = true,
       trackTruncations = true,
@@ -700,6 +733,7 @@ class DetailedCompactionEngine extends BasicCompactionEngine {
     this._contextWindowOverrides = contextWindowOverrides
     this._lastAutoCompactAt = new WeakMap()
     this._saveSummaryFile = saveSummaryFile ?? true
+    this._compressPrompt = compressPrompt ?? ''
     this._auto = engineFields.auto ?? true
     this._summaryCapOverride = null
     // 补丁特性开关
@@ -711,6 +745,48 @@ class DetailedCompactionEngine extends BasicCompactionEngine {
     this._offloadChunkChars = offloadChunkChars ?? 128 * 1024
     this._lastPressure = undefined
     if (this._auto) this._registerPrependAuto()
+  }
+
+  /**
+   * 热更新入口（借鉴 dsh-auxiliary 的 syncEngineConfig）：每次压力检查前把
+   * settings namespace 里的最新值合并进引擎配置，设置页改阈值/预算立即生效，
+   * 无需重启或重挂引擎。
+   */
+  compactIfNeeded(agent, trigger, signal) {
+    this._syncLiveKnobs()
+    return super.compactIfNeeded(agent, trigger, signal)
+  }
+
+  _syncLiveKnobs() {
+    if (!LIVE_KNOBS.dirty) return
+    LIVE_KNOBS.dirty = false
+    const next = { ...this.config }
+    if (LIVE_KNOBS.thresholdRatio !== undefined) next.thresholdRatio = LIVE_KNOBS.thresholdRatio
+    if (LIVE_KNOBS.retainTokens !== undefined) {
+      next.retainTokens = LIVE_KNOBS.retainTokens
+      delete next.retainRatio
+    } else if (LIVE_KNOBS.retainRatio !== undefined) {
+      if (LIVE_KNOBS.retainRatio < next.thresholdRatio) {
+        next.retainRatio = LIVE_KNOBS.retainRatio
+        delete next.retainTokens
+      } else {
+        this.ctx.logger.warn(
+          `live retainRatio (${LIVE_KNOBS.retainRatio}) must stay below thresholdRatio `
+          + `(${next.thresholdRatio}); keeping previous retain policy`,
+        )
+      }
+    }
+    if (LIVE_KNOBS.maxTokens !== undefined) next.maxTokens = LIVE_KNOBS.maxTokens
+    this.config = next
+    this.ctx.logger.info(
+      'dsh-context-compactor: live settings applied '
+      + `(thresholdRatio=${next.thresholdRatio}, maxTokens=${next.maxTokens})`,
+    )
+  }
+
+  /** 压缩指令：settings 热更新 > 静态配置 compressPrompt > 内置中文模板。 */
+  _summaryInstruction() {
+    return LIVE_KNOBS.compressPrompt || this._compressPrompt || DETAIL_SUMMARY_INSTRUCTION
   }
 
   _registerPrependAuto() {
@@ -1015,7 +1091,7 @@ class DetailedCompactionEngine extends BasicCompactionEngine {
     const messages = [
       ...input.messages,
       createUserMessage({
-        content: [{ type: 'text', text: DETAIL_SUMMARY_INSTRUCTION }],
+        content: [{ type: 'text', text: this._summaryInstruction() }],
         source: { kind: 'plugin', plugin: 'dsh-context-compactor' },
       }),
     ]
@@ -1321,7 +1397,13 @@ function registerCommands(ctx, cfg) {
     }
 
     if (contextWindow !== undefined) {
-      const ratio = pickThresholdRatio(cfg, target)
+      // 阈值口径：per-model 策略 > settings 热更新 > 静态配置。
+      const policyOverride = target === undefined
+        ? undefined
+        : cfg.modelPolicies.find(
+          (entry) => entry.provider === target.provider && entry.model === target.model,
+        )
+      const ratio = policyOverride?.thresholdRatio ?? LIVE_KNOBS.thresholdRatio ?? cfg.thresholdRatio
       const thresholdTokens = Math.floor(contextWindow * ratio)
       const percent = Math.round((measurement.totalTokens / contextWindow) * 100)
       lines.push(`模型窗口：${contextWindow} tokens；自动压缩阈值：${thresholdTokens} tokens（${Math.round(ratio * 100)}%）`)
@@ -1338,6 +1420,13 @@ function registerCommands(ctx, cfg) {
       lines.push('当前 provider 未报告上下文窗口大小，压力阈值不可计算；context-overflow 自动恢复仍然生效。')
     }
     lines.push('压缩保证：每次压缩后都会校验 token 必须实际下降；未下降会自动降低保留尾巴/总结预算继续压缩。')
+    if (LIVE_KNOBS.compressPrompt !== undefined || cfg.compressPrompt.length > 0) {
+      const source = LIVE_KNOBS.compressPrompt !== undefined ? 'settings 热更新版' : '静态配置'
+      lines.push(`压缩指令：使用自定义 compressPrompt（${source}，长度 ${(LIVE_KNOBS.compressPrompt ?? cfg.compressPrompt).length} 字符）`)
+    }
+    if (cfg.liveSettings) {
+      lines.push('热更新：thresholdRatio/retain/maxTokens/compressPrompt 已接入 settings namespace dsh-context-compactor，改动在下一次压缩前生效。')
+    }
     if (cfg.saveSummaryFile) {
       lines.push(`总结保存：${summaryFilePath(agent.session.id)}`)
     }
@@ -1503,6 +1592,75 @@ function startReflectionScheduler(ctx, cfg) {
   }, 'dsh-context-compactor scheduled reflection')
 }
 
+/**
+ * 热更新设置（借鉴 dsh-search 的 settings.register + watch 模式）：
+ * 注册 settings namespace `dsh-context-compactor`，暴露 thresholdRatio /
+ * retainRatio / retainTokens / maxTokens / compressPrompt 五个运行时可调项。
+ * watch 到变化只写 LIVE_KNOBS 并置 dirty，真正生效在引擎下一次压力检查前
+ * （_syncLiveKnobs），因此改完设置立刻对下一次压缩生效，无需重启。
+ * settings 服务或 schemastery 不可用时静默降级：仅打日志，静态配置照常工作。
+ */
+function installLiveSettings(ctx, cfg) {
+  ctx.inject(['settings'], (sctx) => {
+    void Promise.resolve().then(async () => {
+      try {
+        const settings = sctx?.settings ?? sctx
+        if (settings === undefined || typeof settings.register !== 'function') {
+          ctx.logger.info('dsh-context-compactor: settings service unavailable; live settings disabled')
+          return
+        }
+        const mod = await import('@deepseek-ai/schemastery').catch(() => undefined)
+        const z = mod?.default ?? mod
+        if (z === undefined || typeof z.object !== 'function') {
+          ctx.logger.info('dsh-context-compactor: schemastery unavailable; live settings disabled (static config still effective)')
+          return
+        }
+        const LiveConfig = z.object({
+          thresholdRatio: z.number().min(0.01).max(0.99)
+            .description('自动压缩阈值（上下文用量占比 0-1）'),
+          retainRatio: z.number().min(0.01).max(0.99)
+            .description('压缩后保留尾部历史比例；retainTokens 大于 0 时被忽略'),
+          retainTokens: z.number().min(0)
+            .description('压缩后保留尾部 tokens；大于 0 时优先于 retainRatio'),
+          maxTokens: z.number().min(256)
+            .description('总结输出 token 预算'),
+          compressPrompt: z.string()
+            .description('自定义压缩指令；留空使用内置中文 checkpoint 模板'),
+        })
+        const registered = settings.register('dsh-context-compactor', LiveConfig, {
+          base: {
+            thresholdRatio: cfg.thresholdRatio,
+            retainRatio: cfg.retainRatio,
+            retainTokens: cfg.retainTokens,
+            maxTokens: cfg.maxTokens,
+            compressPrompt: cfg.compressPrompt,
+          },
+        })
+        registered.watch(() => {
+          try {
+            const value = registered.get()
+            if (value !== undefined) applyLiveKnobs(value)
+          } catch (error) {
+            ctx.logger.warn(
+              'dsh-context-compactor: failed to read live settings: '
+              + (error instanceof Error ? error.message : String(error)),
+            )
+          }
+        })
+        ctx.logger.info(
+          'dsh-context-compactor: live settings namespace registered (dsh-context-compactor) '
+          + '— threshold/retain/maxTokens/compressPrompt hot-reload before each pressure check',
+        )
+      } catch (error) {
+        ctx.logger.warn(
+          'dsh-context-compactor: live settings unavailable: '
+          + (error instanceof Error ? error.message : String(error)),
+        )
+      }
+    })
+  })
+}
+
 export function apply(ctx, config) {
   const cfg = resolveConfig(config)
   if (!cfg.enabled) {
@@ -1585,6 +1743,11 @@ export function apply(ctx, config) {
 
   // 专用 HTTP 接口：提示增强结果只回给前端，不写入会话日志/对话。
   registerEnhanceRoute(ctx)
+
+  // 热更新设置：settings namespace 可调 threshold/retain/maxTokens/compressPrompt。
+  if (cfg.liveSettings) {
+    installLiveSettings(ctx, cfg)
+  }
 
   ctx.logger.info(
     'dsh-context-compactor: enabled '
