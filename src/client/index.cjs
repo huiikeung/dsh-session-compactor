@@ -3,8 +3,9 @@
  * 构建时被 scripts/build-client.mjs 包进 __ModuleLoader__.load 工厂。
  *
  * 两个入口：
- *  1. 输入框下方（conversation.composer.dock）默认只显示一个「上下文 X%」小胶囊，
- *     点击展开「压缩总结 / 提示增强」操作条；展开状态仅本次渲染会话内记忆。
+ *  1. 输入框下方 dock 行里，官方「上下文用量」圆环（ContextMeter）的右侧：
+ *     点击圆环展开「压缩总结 / 提示增强」两个按钮，默认收起不占位；
+ *     圆环自此只作我们的触发器（官方 breakdown 面板被拦截，数据仍可 /context-status 看）。
  *  2. 设置 → 插件（plugins.item）里的配置卡片：直接读写服务端注册的
  *     settings namespace `dsh-context-compactor`（压缩阈值 / 保留量 / 压缩指令），
  *     保存后服务端热更新生效，无需重启。
@@ -18,58 +19,34 @@ const inject = ['slots', 'remote', 'remote.commands', 'settingsScope']
 
 const CC_NS = 'dsh-context-compactor'
 
+/** 官方 ContextMeter 触发器（圆环按钮）的稳定识别特征：整包内唯一。 */
+const METER_TRIGGER_SELECTOR = 'button[aria-haspopup="dialog"][aria-expanded]'
+
 const STYLES = `
+/* 排到官方上下文圆环右侧：dock 行是 flex，我们的条目 DOM 在圆环之前，用 order 换序；
+   收起时 display:none，不占位也不产生 flex gap。 */
 [data-dsh-context-compactor-dock] {
-  box-sizing: border-box;
-  width: calc(100% - 2 * var(--dsh-composer-side-clearance) - 2 * var(--dsh-composer-dock-inset));
-  margin: 0 auto;
+  order: 1;
+  flex: none;
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-}
-[data-dsh-context-compactor-dock] .cc-toggle {
-  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid var(--dsw-alias-border-l1);
-  background: var(--dsw-specific-tip);
-  color: var(--dsw-alias-label-tertiary);
-  border-radius: 999px;
-  cursor: pointer;
-  font-size: 12px;
-  line-height: 18px;
-  font-variant-numeric: tabular-nums;
+  min-width: 0;
+  max-width: 100%;
 }
-[data-dsh-context-compactor-dock] .cc-toggle:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-secondary);
-}
-[data-dsh-context-compactor-dock] .cc-meter.cc-warn {
-  color: var(--dsw-alias-state-warning, #d97706);
-  font-weight: 600;
-}
-[data-dsh-context-compactor-dock] .cc-caret {
-  font-size: 10px;
-  line-height: 1;
-  transform: translateY(-1px);
-}
-[data-dsh-context-compactor-dock] .cc-caret.cc-open {
-  transform: translateY(1px);
+[data-dsh-context-compactor-dock].cc-collapsed {
+  display: none;
 }
 [data-dsh-context-compactor-dock] .cc-bar {
   box-sizing: border-box;
-  width: 100%;
-  max-width: calc(var(--dsh-composer-card-max-width) - 4 * var(--dsh-composer-dock-inset));
+  flex: none;
+  width: auto;
+  max-width: min(560px, 72vw);
   border: 1px solid var(--dsw-alias-border-l1);
   background: var(--dsw-specific-tip);
   border-radius: 12px;
   align-items: center;
   gap: 10px;
   height: 36px;
-  margin: 0 auto;
   padding: 4px 5px 4px 12px;
   display: flex;
   /* 窄屏（手机）下内容超出时横向滑动，避免溢出输入框；滚动条隐藏，可触摸滑动 */
@@ -85,7 +62,8 @@ const STYLES = `
 }
 [data-dsh-context-compactor-dock] .cc-feedback {
   min-width: 0;
-  flex: 1;
+  flex: 0 1 auto;
+  max-width: 220px;
   color: var(--dsw-alias-label-secondary);
   text-overflow: ellipsis;
   overflow: hidden;
@@ -225,7 +203,36 @@ function installStyles() {
   document.head.appendChild(tag)
 }
 
-/** 输入框下方的 dock：默认收起为用量胶囊，展开后是压缩总结 / 提示增强操作条。 */
+/**
+ * 向上遍历祖先，找到 root 所在 dock 行里的官方上下文圆环按钮。
+ * 不假设 slot 条目是否被包 wrapper、也不假设圆环 button 的嵌套深度
+ * （ContextMeter 的 button 嵌在 span 里）：从 root 逐级上溯，第一个
+ * 「包含圆环且圆环不在 root 子树内」的祖先即所在行。纯函数，便于测试。
+ */
+function findMeterTrigger(root) {
+  if (!root || typeof root.querySelector !== 'function') return undefined
+  let el = root
+  let depth = 0
+  while (el && depth < 8) {
+    const hit = el.querySelector(METER_TRIGGER_SELECTOR)
+    if (hit && !root.contains(hit)) return hit
+    el = el.parentElement
+    depth += 1
+  }
+  return undefined
+}
+
+/** 从一次 DOM 事件里解析「是否点在了本行官方上下文圆环上」。纯函数，便于测试。 */
+function meterTriggerFrom(event, root) {
+  const target = event && event.target
+  if (!target || typeof target.closest !== 'function') return undefined
+  const hit = target.closest(METER_TRIGGER_SELECTOR)
+  if (!hit) return undefined
+  const meter = findMeterTrigger(root)
+  return meter !== undefined && hit === meter ? hit : undefined
+}
+
+/** 输入框下方 dock：默认收起；点击官方上下文圆环后在它右侧展开操作条。 */
 function CompactDock(props) {
   // composer.dock 没有 owner props：session/input 必须走 session 作用域标准钩子
   // （useSession / useInput / useProjection / inputActions），读 props.session 会
@@ -239,9 +246,38 @@ function CompactDock(props) {
   const [pending, setPending] = React.useState(false)
   const [enhancing, setEnhancing] = React.useState(false)
   const [feedback, setFeedback] = React.useState(null)
+  const rootRef = React.useRef(null)
   const pendingRef = React.useRef(false)
   const enhancingRef = React.useRef(false)
   const timerRef = React.useRef(null)
+
+  // 官方圆环即触发器：捕获阶段接住点击、切换展开态，并拦掉官方 breakdown 面板。
+  // 点在别处则收起；圆环/自身按钮上的 pointerdown 不收起（交给 click 切换）。
+  React.useEffect(() => {
+    if (typeof document === 'undefined') return
+    const onCaptureClick = (event) => {
+      const root = rootRef.current
+      if (!root) return
+      if (meterTriggerFrom(event, root) === undefined) return
+      event.stopPropagation()
+      setOpen((v) => !v)
+    }
+    const onCapturePointerDown = (event) => {
+      const root = rootRef.current
+      if (!root) return
+      const target = event && event.target
+      if (!target || typeof target.closest !== 'function') return
+      if (root.contains(target)) return
+      if (meterTriggerFrom(event, root) !== undefined) return
+      setOpen(false)
+    }
+    document.addEventListener('click', onCaptureClick, true)
+    document.addEventListener('pointerdown', onCapturePointerDown, true)
+    return () => {
+      document.removeEventListener('click', onCaptureClick, true)
+      document.removeEventListener('pointerdown', onCapturePointerDown, true)
+    }
+  }, [])
 
   React.useEffect(() => {
     return () => {
@@ -299,37 +335,17 @@ function CompactDock(props) {
     }
   }, [props.enhance, input, props.inputActions, showFeedback])
 
-  // 全新空白会话不显示工具条。
+  // 全新空白会话不显示。收起态保留一个 display:none 的挂载点，
+  // 让点击监听能通过 parentElement 找到官方圆环所在的 dock 行。
   if (session === undefined || session.blank) return null
-
-  const windowTokens = pressure && typeof pressure.contextWindow === 'number'
-    ? pressure.contextWindow
-    : undefined
-  const usedTokens = pressure
-    ? (typeof pressure.projectedTokens === 'number' ? pressure.projectedTokens
-      : typeof pressure.pressureTokens === 'number' ? pressure.pressureTokens : 0)
-    : 0
-  const percent = windowTokens !== undefined && windowTokens > 0
-    ? Math.min(999, Math.round((usedTokens / windowTokens) * 100))
-    : null
-  const warn = percent !== null && percent >= 80
-  const meterText = percent === null ? '上下文用量未知' : '上下文 ' + percent + '%'
 
   return React.createElement(
     'div',
-    { className: 'cc-dock', 'data-dsh-context-compactor-dock': '' },
-    React.createElement(
-      'button',
-      {
-        type: 'button',
-        className: 'cc-toggle',
-        onClick: () => { setOpen((v) => !v) },
-        'aria-expanded': open ? 'true' : 'false',
-        'aria-label': open ? '收起上下文操作' : '展开上下文操作',
-      },
-      React.createElement('span', { className: 'cc-meter' + (warn ? ' cc-warn' : '') }, meterText),
-      React.createElement('span', { className: 'cc-caret' + (open ? ' cc-open' : '') }, open ? '▴' : '▾'),
-    ),
+    {
+      ref: rootRef,
+      className: 'cc-dock' + (open ? '' : ' cc-collapsed'),
+      'data-dsh-context-compactor-dock': '',
+    },
     open
       ? React.createElement(
           'div',

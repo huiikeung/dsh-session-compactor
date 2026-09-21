@@ -72,19 +72,21 @@ modelPolicies:
 - 超过 `pruneThresholdChars`（默认 8192 字符）的工具输出，保留头 + 标记 + 尾；
 - 只裁剪工具结果文本，**对话历史一律走详细总结**，绝不粗暴截断。
 
-### 5. 输入框下方的「上下文用量」胶囊（0.6.3 起收起折叠）
+### 5. 输入框下方：官方「上下文用量」圆环即触发器（0.6.5 起）
 
 - 浏览器半边通过 `dsh.client` 清单自动发现，注册到 `conversation.composer.dock`
-  （输入框**下方**）；
-- 默认只显示一个小胶囊「上下文 X%」（`contextPressure` 投影，到 80% 自动
-  高亮提醒），不占输入框上方空间；
-- 点击胶囊展开操作条：
+  （输入框**下方**那一行，和官方 ContextMeter 圆环同一排）；
+- **默认不占任何位置**：插件不再显示自己的胶囊/ meter，只保留官方的
+  「上下文用量」圆环（`contextPressure` 投影，到 80% 官方会自行高亮）；
+- **点击圆环**即在它**右侧**展开操作条（DOM 顺序在圆环之前，用 CSS `order` 换序）：
   - 「压缩总结」：点击通过 `remote.commands.execute(sessionId, '/compact')`
     立即触发全局详细总结压缩，按钮会显示「压缩总结中…」并在条上回显结果；
   - 「提示增强」：这是合并自 [LLM-Prompt-Enhancer](https://github.com/RunOnCodes/LLM-Prompt-Enhancer)
     的功能，点击读取输入框草稿，调用 DSH 当前模型增强为更清晰的提示词，
     自动写回输入框（无需额外 Groq Key）；按钮显示「增强中…」并在条上回显结果；
-  - 再点一次胶囊收起；agent 运行中按钮自动禁用；全新空白会话不显示。
+- 圆环自此只作本插件的触发器：官方自带的 breakdown 面板被拦截（同口径数据
+  仍可用 `/context-status` 查看）；再点一次圆环或点页面别处即收起；
+- agent 运行中按钮自动禁用；全新空白会话不显示。
 
 ### 5.1 设置页配置卡片（0.6.3 新增）
 
@@ -253,7 +255,7 @@ dsh plugin --profile web add git+https://github.com/huiikeung/dsh-context-compac
 ### 安装后
 
 1. **刷新 / 重启 DSH web**，让 profile 的 bundle 层装配并构建前端；
-2. 输入框下方会出现「上下文 X%」胶囊，点击展开「压缩总结」「提示增强」；
+2. 输入框下方官方「上下文用量」圆环保持不变，点击圆环即在它右侧展开「压缩总结」「提示增强」；
 3. 输入 `/context-status` 查看 token 用量与阈值，`/reflect`、`/truncations`、
    `/compact` 等命令即可用。
 
