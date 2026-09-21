@@ -113,6 +113,13 @@ modelPolicies:
   等同「恢复默认」（回落到 cordis 配置或内置模板）；
 - 宿主为内存模式或插件服务端未加载时，页面会显示「当前不可用」；
   刚进去还在读宿主文档时显示「正在读取设置…」；
+- **侧栏图标**：DSH 的设置分页图标走核心里一张硬编码的 `id → 图标` 表
+  （`navIcon(id)`，`settings.section` 的 slot 契约里没有 icon 字段），第三方分页
+  一律落回通用齿轮。本插件用 `scripts/patch-sidebar-icon.mjs` 给这张表补了一条
+  `context-compactor → IconCompactOutline16`（圆环+弧线，和「上下文用量」圆环同源），
+  与 dsh-search 给「联网搜索」打 globe 补丁同一套做法；**幂等**，首次打补丁会在
+  同目录留 `.dsh-context-compactor.bak`，**DSH 升级后需重跑**。
+  补丁只动客户端 bundle，刷新页面即生效，不用重启 dsh；
 - **0.6.9 修复「设置页一片空白」**：`React.useSyncExternalStore` 是以**裸函数**
   调用 `subscribe`/`getSnapshot` 的（`this` 会丢），而 `settingsScope.bind()` 返回的
   控制器是 class 实例、方法内部读 `this.store` —— 直接把 `scope.subscribe` /
