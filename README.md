@@ -72,18 +72,28 @@ modelPolicies:
 - 超过 `pruneThresholdChars`（默认 8192 字符）的工具输出，保留头 + 标记 + 尾；
 - 只裁剪工具结果文本，**对话历史一律走详细总结**，绝不粗暴截断。
 
-### 5. 输入框上方的「压缩总结」+「提示增强」按钮
+### 5. 输入框下方的「上下文用量」胶囊（0.6.3 起收起折叠）
 
-- 浏览器半边通过 `dsh.client` 清单自动发现，注册到 `conversation.input.dock`
-  （输入框正上方，与 goal/todo 工具条同一排）；
-- 工具条实时显示**上下文用量百分比**（`contextPressure` 投影），到 80% 自动
-  高亮提醒；
-- 左侧按钮「压缩总结」：点击通过 `remote.commands.execute(sessionId, '/compact')`
-  立即触发全局详细总结压缩，按钮会显示「压缩总结中…」并在条上回显结果；
-- 右侧按钮「提示增强」：这是合并自 [LLM-Prompt-Enhancer](https://github.com/RunOnCodes/LLM-Prompt-Enhancer)
-  的功能，点击读取输入框草稿，调用 DSH 当前模型增强为更清晰的提示词，
-  自动写回输入框（无需额外 Groq Key）；按钮显示「增强中…」并在条上回显结果；
-- agent 运行中按钮自动禁用；全新空白会话不显示。
+- 浏览器半边通过 `dsh.client` 清单自动发现，注册到 `conversation.composer.dock`
+  （输入框**下方**）；
+- 默认只显示一个小胶囊「上下文 X%」（`contextPressure` 投影，到 80% 自动
+  高亮提醒），不占输入框上方空间；
+- 点击胶囊展开操作条：
+  - 「压缩总结」：点击通过 `remote.commands.execute(sessionId, '/compact')`
+    立即触发全局详细总结压缩，按钮会显示「压缩总结中…」并在条上回显结果；
+  - 「提示增强」：这是合并自 [LLM-Prompt-Enhancer](https://github.com/RunOnCodes/LLM-Prompt-Enhancer)
+    的功能，点击读取输入框草稿，调用 DSH 当前模型增强为更清晰的提示词，
+    自动写回输入框（无需额外 Groq Key）；按钮显示「增强中…」并在条上回显结果；
+  - 再点一次胶囊收起；agent 运行中按钮自动禁用；全新空白会话不显示。
+
+### 5.1 设置页配置卡片（0.6.3 新增）
+
+- 「设置 → 插件 → 上下文压缩」页可直接修改 `dsh-context-compactor`
+  namespace 的 5 个压缩参数（压缩触发阈值 / 保留比例 / 保留 Token 数 /
+  摘要最大 Token 数 / 压缩指令）；
+- 保存即写入用户层并**热更新生效**（下一次压缩检查即采用新值），某项留空
+  等同「恢复默认」（回落到 cordis 配置或内置模板）；
+- 宿主为内存模式或插件服务端未加载时，卡片会显示「当前不可用」。
 
 ### 6. 手动命令
 
@@ -243,7 +253,7 @@ dsh plugin --profile web add git+https://github.com/huiikeung/dsh-context-compac
 ### 安装后
 
 1. **刷新 / 重启 DSH web**，让 profile 的 bundle 层装配并构建前端；
-2. 输入框上方会出现「压缩总结」「提示增强」工具条；
+2. 输入框下方会出现「上下文 X%」胶囊，点击展开「压缩总结」「提示增强」；
 3. 输入 `/context-status` 查看 token 用量与阈值，`/reflect`、`/truncations`、
    `/compact` 等命令即可用。
 
