@@ -120,10 +120,9 @@ modelPolicies:
   `<svg>` 的几何（保留外壳给的元素/类名/尺寸，不依赖它的哈希类名），并用
   MutationObserver 应对外壳重渲染导航时把齿轮换回来的情况；svg 上打
   `data-context-compactor-nav-icon` 标记，只改一次。
-  之所以不打核心补丁：那套在 DSH runtime 重新解包、`pnpm install`、或别的插件装卸
-  自己的补丁时会被冲掉（本仓库 `scripts/patch-sidebar-icon.mjs` 与 runtime 下的一堆
-  `.dsh-*.bak` 就是历次被冲的证据），而且每次都要重跑。运行时 Pin 刷新页面即生效、
-  无需重启，升级也不丢。该补丁脚本保留仅作回退。
+  **不打核心补丁**：那套在 DSH runtime 重新解包、`pnpm install`、或别的插件装卸自己
+  的补丁时会被冲掉（runtime 下那一堆 `.dsh-*.bak` 就是历次被冲的遗物），而且每次都要
+  重跑。运行时 Pin 刷新页面即生效、无需重启、升级也不丢。补丁脚本已从仓库移除。
 - **0.6.9 修复「设置页一片空白」**：`React.useSyncExternalStore` 是以**裸函数**
   调用 `subscribe`/`getSnapshot` 的（`this` 会丢），而 `settingsScope.bind()` 返回的
   控制器是 class 实例、方法内部读 `this.store` —— 直接把 `scope.subscribe` /

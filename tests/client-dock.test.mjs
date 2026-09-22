@@ -420,12 +420,32 @@ class FakeSettingsScope {
     return { doc, mkCell, mkSvg }
   }
 
-  const ours = { textContent: ' 上下文压缩 ', ...(() => { const s = { _attrs: {}, getAttribute(k) { return Object.hasOwn(this._attrs, k) ? this._attrs[k] : null }, setAttribute(k, v) { this._attrs[k] = String(v) }, innerHTML: '' }; return { _svg: s } })() }
-  ours.querySelector = (sel) => (sel === 'svg' ? ours._svg : null)
-  const other = { textContent: '模型', _svg: { _attrs: {}, getAttribute(k) { return Object.hasOwn(this._attrs, k) ? this._attrs[k] : null }, setAttribute(k, v) { this._attrs[k] = String(v) }, innerHTML: '' } }
-  other.querySelector = (sel) => (sel === 'svg' ? other._svg : null)
+  // 结构与真实 DSH 设置面板逐层对应（dsh-client-ui-settings-general）：
+  //   div.panel[role=dialog] > nav > div.navList > button.navCell > svg + span.navLabel
+  const mkSvgEl = () => ({
+    _attrs: {},
+    getAttribute(k) { return Object.hasOwn(this._attrs, k) ? this._attrs[k] : null },
+    setAttribute(k, v) { this._attrs[k] = String(v) },
+    innerHTML: '',
+  })
+  const mkCell = (label, svg) => ({
+    textContent: label,                       // svg 不贡献文本，textContent 即标签
+    _svg: svg,
+    querySelector: (sel) => (sel === 'svg' ? svg : null),
+  })
+  const ourSvg = mkSvgEl()
+  const modelSvg = mkSvgEl()
+  const ours = mkCell('上下文压缩', ourSvg)
+  const other = mkCell('模型', modelSvg)
+  const nav = { querySelectorAll: (sel) => (sel === 'button' ? [other, ours] : []) }
+  const dialog = { querySelectorAll: (sel) => (sel === 'nav button' ? nav.querySelectorAll('button') : []) }
 
-  const { doc } = makeFakeDocument([other, ours])
+  const doc = {
+    head: { appendChild: () => {} },
+    createElement: () => ({ dataset: {} }),
+    querySelector: (sel) => (sel === '[role="dialog"]' ? dialog : null),
+    querySelectorAll: (sel) => (sel === '[role="dialog"] nav button' ? [other, ours] : []),
+  }
   const observers = []
   globalThis.MutationObserver = class { constructor(cb) { this.cb = cb } observe() { observers.push(this) } }
 
