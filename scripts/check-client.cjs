@@ -1,5 +1,5 @@
 const fs = require('fs')
-const s = fs.readFileSync('D:/deepseek/dsh-context-compactor/lib/client.js', 'utf8')
+const s = fs.readFileSync('D:/deepseek/dsh-session-compactor/lib/client.js', 'utf8')
 console.log('has 压缩总结:', s.includes('压缩总结'))
 console.log('has __ModuleLoader__.load:', s.includes('__ModuleLoader__.load'))
 console.log("has execute('/compact'):", s.includes("execute(sessionId, '/compact')"))

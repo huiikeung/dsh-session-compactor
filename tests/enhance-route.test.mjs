@@ -1,5 +1,5 @@
 /**
- * /dsh-context-compactor/enhance 路由注册回归测试。
+ * /dsh-session-compactor/enhance 路由注册回归测试。
  *
  * 修的 bug：老代码在 apply() 里用 `ctx.get('webServer')` 拿服务，而本插件 apply 时
  * webServer 往往还没激活 → 拿到 undefined → 静默 return → 路由从未注册。前端点
@@ -8,7 +8,7 @@
  *
  * 本测试用假 ctx 复刻「apply 时 webServer 未就绪」这一时序，断言：
  *   1. apply 阶段不会直接注册（也不会崩）；
- *   2. webServer 就绪后路由被注册成 exact /dsh-context-compactor/enhance；
+ *   2. webServer 就绪后路由被注册成 exact /dsh-session-compactor/enhance；
  *   3. handler 的 405 / 400 / 404 / 200 分支都按 JSON 契约回。
  */
 import { apply } from '../lib/index.js'
@@ -19,7 +19,7 @@ const check = (name, cond, extra) => {
   else { failures += 1; console.log('FAIL', name, extra === undefined ? '' : '→ ' + extra) }
 }
 
-const PATH = '/dsh-context-compactor/enhance'
+const PATH = '/dsh-session-compactor/enhance'
 
 /** 记录 webServer.register 的假 webServer；就绪前 get('webServer') 返回 undefined。 */
 function makeWebServer() {

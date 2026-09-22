@@ -1,5 +1,5 @@
 /**
- * dsh-context-compactor build:
+ * dsh-session-compactor build:
  * 1. src/index.js → lib/index.js
  * 2. 在插件自己的 node_modules 下建 @deepseek-ai peer junction，
  *    指向当前激活 profile 的 node_modules（版本与 host 运行版本严格一致），

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * dsh-context-compactor — 把 Headroom 的 MCP server 注册进 web profile。
+ * dsh-session-compactor — 把 Headroom 的 MCP server 注册进 web profile。
  *
  * Headroom（github.com/headroomlabs-ai/headroom）是一个本地上下文压缩层：
  * SmartCrusher 压 JSON/工具输出、CodeCompressor 压代码，压完原文进本地 CCR 仓，
@@ -19,19 +19,19 @@ import { join } from 'node:path'
 const PROFILE = process.env.DSH_PROFILE_DIR
   || '/vol1/@appdata/deepseek.harness/dsh-data/profiles/web'
 const PATCH = join(PROFILE, 'cordis.patch.yml')
-const BACKUP = PATCH + '.dsh-context-compactor.bak'
+const BACKUP = PATCH + '.dsh-session-compactor.bak'
 
 const HR_HOME = process.env.HEADROOM_HOME || '/vol1/@appdata/deepseek.harness/headroom'
 const HR_BIN = join(HR_HOME, 'venv', 'bin', 'headroom')
 
 if (!existsSync(HR_BIN)) {
-  console.error(`[dsh-context-compactor] headroom 二进制不在 ${HR_BIN}；先装：python3 -m venv ${HR_HOME}/venv && ${HR_HOME}/venv/bin/pip install "headroom-ai[mcp]"`)
+  console.error(`[dsh-session-compactor] headroom 二进制不在 ${HR_BIN}；先装：python3 -m venv ${HR_HOME}/venv && ${HR_HOME}/venv/bin/pip install "headroom-ai[mcp]"`)
   process.exit(1)
 }
 
 let yaml = readFileSync(PATCH, 'utf8')
 if (yaml.includes('id: mcp-headroom')) {
-  console.log('[dsh-context-compactor] mcp-headroom 已注册：', PATCH)
+  console.log('[dsh-session-compactor] mcp-headroom 已注册：', PATCH)
   process.exit(0)
 }
 
@@ -42,7 +42,7 @@ const anchor = [
   '        transport: stdio',
 ].join('\n')
 if (!yaml.includes(anchor)) {
-  console.error('[dsh-context-compactor] cordis.patch.yml 里找不到 mcp-context7 锚点（文件被改过？）；未改动。')
+  console.error('[dsh-session-compactor] cordis.patch.yml 里找不到 mcp-context7 锚点（文件被改过？）；未改动。')
   process.exit(1)
 }
 
@@ -69,6 +69,6 @@ const entry = [
 
 if (!existsSync(BACKUP)) copyFileSync(PATCH, BACKUP)
 writeFileSync(PATCH, yaml.replace(anchor, entry))
-console.log('[dsh-context-compactor] mcp-headroom 已写入：', PATCH)
+console.log('[dsh-session-compactor] mcp-headroom 已写入：', PATCH)
 console.log('  备份：', BACKUP)
 console.log('  重启 dsh 后生效（服务端 patch 层改动）。')

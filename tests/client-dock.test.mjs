@@ -13,7 +13,7 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
-const require = createRequire('/vol1/@appdata/deepseek.harness/dsh-data/profiles/web/node_modules/')
+const require = createRequire(process.cwd() + '/node_modules/')
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const bundlePath = join(root, 'lib', 'client.js')
 
@@ -472,7 +472,7 @@ class FakeSettingsScope {
   check('自己的导航格 svg 被 Pin 成压缩环（viewBox 换成 16 网格）', ours._svg._attrs.viewBox === '0 0 16 16',
     JSON.stringify(ours._svg._attrs))
   check('Pin 后写入圆环 + 弧线几何', ours._svg.innerHTML.includes('circle') && ours._svg.innerHTML.includes('path'))
-  check('Pin 后打上标记属性（不会重复改写）', ours._svg._attrs['data-context-compactor-nav-icon'] === '1')
+  check('Pin 后打上标记属性（不会重复改写）', ours._svg._attrs['data-session-compactor-nav-icon'] === '1')
   check('别人的导航格（模型）原封不动', Object.keys(other._svg._attrs).length === 0 && other._svg.innerHTML === '')
   check('装了 MutationObserver 应对外壳重渲染', observers.length >= 1)
   delete globalThis.MutationObserver

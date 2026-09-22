@@ -1,12 +1,12 @@
 /**
- * dsh-context-compactor
+ * dsh-session-compactor
  *
  * 开箱即用的「上下文压缩 / 上下文总结」插件，默认策略：
  *   - 上下文用量达到模型窗口 80% → 自动触发压缩；
  *   - 总结最优先：先把较早历史用 LLM 做成【详细】checkpoint 总结，
  *     绝不靠粗暴截断代替总结；
  *   - 总结双份保存：会话日志里持久化 compaction/* 事件 + checkpoint 节点，
- *     同时写一份 Markdown 到 ~/.dsh/storages/dsh-context-compactor/summaries/；
+ *     同时写一份 Markdown 到 ~/.dsh/storages/dsh-session-compactor/summaries/；
  *   - context-overflow 时同样先总结压缩，再自动重试本轮请求。
  *
  * 挂载方式：监听 `agent/created` 并补扫已存活 agent，在 agent scope 内用独立
@@ -27,14 +27,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-export const name = 'dsh-context-compactor'
+export const name = 'dsh-session-compactor'
 
 /** 本模块挂载成功的引擎实例表：/compact 的兜底（引擎是 agent 无关的，可服务任意会话）。 */
 const LIVE_ENGINES = []
 
 /**
  * 动态配置（借鉴 dsh-auxiliary 的 syncEngineConfig 模式）：
- * settings namespace `dsh-context-compactor` 的运行时可调项。watch 到变化后
+ * settings namespace `dsh-session-compactor` 的运行时可调项。watch 到变化后
  * 写入这里并置 dirty；引擎在每次压力检查（compactIfNeeded）前合并进 this.config，
  * summarize 取压缩指令时也优先读这里。settings 服务 / schemastery 不可用时
  * 保持空表，插件整体降级为 cordis.patch.yml 的静态配置，行为与旧版一致。
@@ -205,7 +205,7 @@ async function enhanceText(ctx, session, agentOptions, text, signal) {
   const messages = [
     createUserMessage({
       content: [{ type: 'text', text: ENHANCE_PROMPT_INSTRUCTION + '\n\nUser draft:\n' + text }],
-      source: { kind: 'plugin', plugin: 'dsh-context-compactor' },
+      source: { kind: 'plugin', plugin: 'dsh-session-compactor' },
     }),
   ]
   for await (const chunk of llm.stream({
@@ -230,7 +230,7 @@ async function enhanceText(ctx, session, agentOptions, text, signal) {
   return output
 }
 
-/** 注册一个不写会话日志的专用接口：POST /dsh-context-compactor/enhance。 */
+/** 注册一个不写会话日志的专用接口：POST /dsh-session-compactor/enhance。 */
 function registerEnhanceRoute(ctx) {
   // ⚠️ 本插件 apply 时 webServer 可能还没激活，主 fiber 上 ctx.get('webServer') 会拿到
   // undefined —— 老代码在这里静默 return，路由从未注册，前端「提示增强」只能拿到
@@ -244,7 +244,7 @@ function registerEnhanceRoute(ctx) {
     try {
       wctx.effect(() => webServer.register({
         kind: 'exact',
-        path: '/dsh-context-compactor/enhance',
+        path: '/dsh-session-compactor/enhance',
         handler: async (req, res) => {
           const json = (status, body) => {
             res.writeHead(status, { 'Content-Type': 'application/json' })
@@ -279,11 +279,11 @@ function registerEnhanceRoute(ctx) {
             })
           }
         },
-      }), 'dsh-context-compactor enhance route')
+      }), 'dsh-session-compactor enhance route')
     } catch (error) {
       // 热激活/重复装载时路由可能已注册，幂等跳过。
       wctx.logger.info(
-        'dsh-context-compactor: enhance route already registered or unavailable: '
+        'dsh-session-compactor: enhance route already registered or unavailable: '
         + (error instanceof Error ? error.message : String(error)),
       )
     }
@@ -291,7 +291,7 @@ function registerEnhanceRoute(ctx) {
 }
 
 function fail(message) {
-  throw new Error(`dsh-context-compactor: ${message}`)
+  throw new Error(`dsh-session-compactor: ${message}`)
 }
 
 function isPlainObject(value) {
@@ -495,17 +495,17 @@ function engineConfig(cfg) {
 function summaryFilePath(sessionId) {
   const home = process.env.DSH_HOME || join(homedir(), '.dsh')
   const safe = String(sessionId).replace(/[^A-Za-z0-9._-]/g, '_')
-  return join(home, 'storages', 'dsh-context-compactor', 'summaries', `${safe}.md`)
+  return join(home, 'storages', 'dsh-session-compactor', 'summaries', `${safe}.md`)
 }
 
 /* ========================================================================= *
  * 补丁 1 / 3 / 4 的底层工具：长文本防丢落盘、工具截断追踪、定时反思状态   *
  * ========================================================================= */
 
-/** 插件持久化根目录：~/.dsh/storages/dsh-context-compactor/ */
+/** 插件持久化根目录：~/.dsh/storages/dsh-session-compactor/ */
 function pluginStorageDir() {
   const home = process.env.DSH_HOME || join(homedir(), '.dsh')
-  return join(home, 'storages', 'dsh-context-compactor')
+  return join(home, 'storages', 'dsh-session-compactor')
 }
 
 function safeSegment(value) {
@@ -793,7 +793,7 @@ class DetailedCompactionEngine extends BasicCompactionEngine {
     if (LIVE_KNOBS.maxTokens !== undefined) next.maxTokens = LIVE_KNOBS.maxTokens
     this.config = next
     this.ctx.logger.info(
-      'dsh-context-compactor: live settings applied '
+      'dsh-session-compactor: live settings applied '
       + `(thresholdRatio=${next.thresholdRatio}, maxTokens=${next.maxTokens})`,
     )
   }
@@ -946,7 +946,7 @@ class DetailedCompactionEngine extends BasicCompactionEngine {
         if (preserved.length > 0) {
           this.ctx.logger.info(
             `detailed compaction: preserved ${preserved.length} large tool result(s) to disk `
-            + '(see ~/.dsh/storages/dsh-context-compactor/preserved/) before pruning',
+            + '(see ~/.dsh/storages/dsh-session-compactor/preserved/) before pruning',
           )
         }
       } catch (error) {
@@ -1106,7 +1106,7 @@ class DetailedCompactionEngine extends BasicCompactionEngine {
       ...input.messages,
       createUserMessage({
         content: [{ type: 'text', text: this._summaryInstruction() }],
-        source: { kind: 'plugin', plugin: 'dsh-context-compactor' },
+        source: { kind: 'plugin', plugin: 'dsh-session-compactor' },
       }),
     ]
     const effectiveMaxTokens = this._summaryCapOverride ?? config.maxTokens
@@ -1159,7 +1159,7 @@ class DetailedCompactionEngine extends BasicCompactionEngine {
         ? ''
         : `- 上下文压力：${Math.round(this._lastPressure * 100)}%\n`
       const header = [
-        '# 上下文总结 checkpoint（dsh-context-compactor）',
+        '# 上下文总结 checkpoint（dsh-session-compactor）',
         '',
         `- 时间：${new Date().toISOString()}`,
         `- 会话：${agent.session.id}`,
@@ -1302,7 +1302,7 @@ function registerCommands(ctx, cfg) {
       return ctx.commands.register(definition)
     } catch (error) {
       if (String(error).includes('already registered')) {
-        ctx.logger.info(`dsh-context-compactor: command "/${definition.name}" already registered, skipping`)
+        ctx.logger.info(`dsh-session-compactor: command "/${definition.name}" already registered, skipping`)
         return () => {}
       }
       throw error
@@ -1439,7 +1439,7 @@ function registerCommands(ctx, cfg) {
       lines.push(`压缩指令：使用自定义 compressPrompt（${source}，长度 ${(LIVE_KNOBS.compressPrompt ?? cfg.compressPrompt).length} 字符）`)
     }
     if (cfg.liveSettings) {
-      lines.push('热更新：thresholdRatio/retain/maxTokens/compressPrompt 已接入 settings namespace dsh-context-compactor，改动在下一次压缩前生效。')
+      lines.push('热更新：thresholdRatio/retain/maxTokens/compressPrompt 已接入 settings namespace dsh-session-compactor，改动在下一次压缩前生效。')
     }
     if (cfg.saveSummaryFile) {
       lines.push(`总结保存：${summaryFilePath(agent.session.id)}`)
@@ -1538,7 +1538,7 @@ function registerCommands(ctx, cfg) {
       description: '查看上下文 token 用量、压缩阈值与风险提示',
       handler: track(statusHandler),
     })
-  }, 'dsh-context-compactor commands')
+  }, 'dsh-session-compactor commands')
 }
 
 /**
@@ -1589,7 +1589,7 @@ function startReflectionScheduler(ctx, cfg) {
           // busy = agent 正忙，下个节拍再试；aborted 说明任务被取消。
           if (!message.includes('busy') && !(agent.signal?.aborted ?? false)) {
             ctx.logger.warn(
-              `dsh-context-compactor: scheduled reflection skipped (${session.id}): ${message}`,
+              `dsh-session-compactor: scheduled reflection skipped (${session.id}): ${message}`,
             )
           }
         }
@@ -1603,12 +1603,12 @@ function startReflectionScheduler(ctx, cfg) {
     const interval = setInterval(() => { void tick() }, cfg.scheduleCheckMinutes * 60 * 1000)
     const initial = setTimeout(() => { void tick() }, 15 * 1000)
     return () => { clearInterval(interval); clearTimeout(initial) }
-  }, 'dsh-context-compactor scheduled reflection')
+  }, 'dsh-session-compactor scheduled reflection')
 }
 
 /**
  * 热更新设置（借鉴 dsh-search 的 settings.register + watch 模式）：
- * 注册 settings namespace `dsh-context-compactor`，暴露 thresholdRatio /
+ * 注册 settings namespace `dsh-session-compactor`，暴露 thresholdRatio /
  * retainRatio / retainTokens / maxTokens / compressPrompt 五个运行时可调项。
  * watch 到变化只写 LIVE_KNOBS 并置 dirty，真正生效在引擎下一次压力检查前
  * （_syncLiveKnobs），因此改完设置立刻对下一次压缩生效，无需重启。
@@ -1620,13 +1620,13 @@ function installLiveSettings(ctx, cfg) {
       try {
         const settings = sctx?.settings ?? sctx
         if (settings === undefined || typeof settings.register !== 'function') {
-          ctx.logger.info('dsh-context-compactor: settings service unavailable; live settings disabled')
+          ctx.logger.info('dsh-session-compactor: settings service unavailable; live settings disabled')
           return
         }
         const mod = await import('@deepseek-ai/schemastery').catch(() => undefined)
         const z = mod?.default ?? mod
         if (z === undefined || typeof z.object !== 'function') {
-          ctx.logger.info('dsh-context-compactor: schemastery unavailable; live settings disabled (static config still effective)')
+          ctx.logger.info('dsh-session-compactor: schemastery unavailable; live settings disabled (static config still effective)')
           return
         }
         const LiveConfig = z.object({
@@ -1641,7 +1641,7 @@ function installLiveSettings(ctx, cfg) {
           compressPrompt: z.string()
             .description('自定义压缩指令；留空使用内置中文 checkpoint 模板'),
         })
-        const registered = settings.register('dsh-context-compactor', LiveConfig, {
+        const registered = settings.register('dsh-session-compactor', LiveConfig, {
           base: {
             thresholdRatio: cfg.thresholdRatio,
             retainRatio: cfg.retainRatio,
@@ -1656,18 +1656,18 @@ function installLiveSettings(ctx, cfg) {
             if (value !== undefined) applyLiveKnobs(value)
           } catch (error) {
             ctx.logger.warn(
-              'dsh-context-compactor: failed to read live settings: '
+              'dsh-session-compactor: failed to read live settings: '
               + (error instanceof Error ? error.message : String(error)),
             )
           }
         })
         ctx.logger.info(
-          'dsh-context-compactor: live settings namespace registered (dsh-context-compactor) '
+          'dsh-session-compactor: live settings namespace registered (dsh-session-compactor) '
           + '— threshold/retain/maxTokens/compressPrompt hot-reload before each pressure check',
         )
       } catch (error) {
         ctx.logger.warn(
-          'dsh-context-compactor: live settings unavailable: '
+          'dsh-session-compactor: live settings unavailable: '
           + (error instanceof Error ? error.message : String(error)),
         )
       }
@@ -1678,7 +1678,7 @@ function installLiveSettings(ctx, cfg) {
 export function apply(ctx, config) {
   const cfg = resolveConfig(config)
   if (!cfg.enabled) {
-    ctx.logger.info('dsh-context-compactor: disabled by config')
+    ctx.logger.info('dsh-session-compactor: disabled by config')
     return
   }
 
@@ -1696,13 +1696,13 @@ export function apply(ctx, config) {
         tailChars: cfg.pruneTailChars,
       })).catch((error) => {
         ctx.logger.warn(
-          'dsh-context-compactor: failed to mount tool-result pruner: '
+          'dsh-session-compactor: failed to mount tool-result pruner: '
           + (error instanceof Error ? error.message : String(error)),
         )
       })
     } catch (error) {
       ctx.logger.warn(
-        'dsh-context-compactor: failed to mount tool-result pruner: '
+        'dsh-session-compactor: failed to mount tool-result pruner: '
         + (error instanceof Error ? error.message : String(error)),
       )
     }
@@ -1713,7 +1713,7 @@ export function apply(ctx, config) {
     const existing = ctx.get('compaction')
     if (existing !== undefined) {
       if (!LIVE_ENGINES.includes(existing)) LIVE_ENGINES.push(existing)
-      ctx.logger.info('dsh-context-compactor: reusing existing host compaction engine')
+      ctx.logger.info('dsh-session-compactor: reusing existing host compaction engine')
     } else {
       void prunerReady.then(() => {
         try {
@@ -1724,18 +1724,18 @@ export function apply(ctx, config) {
               LIVE_ENGINES.push(engine)
             }
             ctx.logger.info(
-              'dsh-context-compactor: host-level detailed compaction engine ready '
+              'dsh-session-compactor: host-level detailed compaction engine ready '
               + `(threshold ${cfg.thresholdRatio}, overflow retries ${cfg.maxOverflowRetries})`,
             )
           }).catch((error) => {
             ctx.logger.warn(
-              'dsh-context-compactor: host-level engine failed to load: '
+              'dsh-session-compactor: host-level engine failed to load: '
               + (error instanceof Error ? error.message : String(error)),
             )
           })
         } catch (error) {
           ctx.logger.warn(
-            'dsh-context-compactor: failed to start host-level engine: '
+            'dsh-session-compactor: failed to start host-level engine: '
             + (error instanceof Error ? error.message : String(error)),
           )
         }
@@ -1764,7 +1764,7 @@ export function apply(ctx, config) {
   }
 
   ctx.logger.info(
-    'dsh-context-compactor: enabled '
+    'dsh-session-compactor: enabled '
     + `(auto=${cfg.auto}, thresholdRatio=${cfg.thresholdRatio}, maxTokens=${cfg.maxTokens}, `
     + `saveSummaryFile=${cfg.saveSummaryFile}, pruneToolResults=${cfg.pruneToolResults}, `
     + `preserveLarge=${cfg.preserveLargeToolResults}, reflect=${cfg.scheduledReflection}@${cfg.scheduleIntervalHours}h, `

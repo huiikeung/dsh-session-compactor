@@ -9,7 +9,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const PACKAGE_ID = '@dsh-external/dsh-context-compactor'
+const PACKAGE_ID = 'dsh-session-compactor'
 
 const source = readFileSync(join(root, 'src', 'client', 'index.cjs'), 'utf8')
 

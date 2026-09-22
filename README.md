@@ -1,4 +1,4 @@
-# dsh-context-compactor
+# dsh-session-compactor
 
 开箱即用的 **上下文压缩 / 上下文总结** 插件。它把 DSH 官方 `dsh-compaction-basic`
 压缩引擎 + 工具结果裁剪器一次性装配进 profile，解决「对话满了不会自动压缩、模型
@@ -58,7 +58,7 @@ modelPolicies:
     客套话与所有重复内容。
 - **保存 1**：会话日志持久化 checkpoint 节点（可回放）；
 - **保存 2**：额外写 Markdown 到
-  `~/.dsh/storages/dsh-context-compactor/summaries/<session-id>.md`（默认开启，
+  `~/.dsh/storages/dsh-session-compactor/summaries/<session-id>.md`（默认开启，
   可关 `saveSummaryFile: false`）；
 - 总结调用生成上限默认 `maxTokens: 12288`（详细预算，可调大）。
 
@@ -107,7 +107,7 @@ modelPolicies:
 
 - 和其它插件一样走 `settings.section`：**设置侧栏直接有「上下文压缩」分页**
   （位于「插件」与「归档会话」之间），不再藏在插件页的 tab 里；
-- 页内可修改 `dsh-context-compactor` namespace 的 5 个压缩参数（压缩触发阈值 /
+- 页内可修改 `dsh-session-compactor` namespace 的 5 个压缩参数（压缩触发阈值 /
   保留比例 / 保留 Token 数 / 摘要最大 Token 数 / 压缩指令），每项带「恢复默认」；
 - 保存即写入用户层并**热更新生效**（下一次压缩检查即采用新值），某项留空
   等同「恢复默认」（回落到 cordis 配置或内置模板）；
@@ -119,7 +119,7 @@ modelPolicies:
   `pinNavGlyph()` 在浏览器里按「导航格标签文本」找到自己的 cell，原地改写那个
   `<svg>` 的几何（保留外壳给的元素/类名/尺寸，不依赖它的哈希类名），并用
   MutationObserver 应对外壳重渲染导航时把齿轮换回来的情况；svg 上打
-  `data-context-compactor-nav-icon` 标记，只改一次。
+  `data-session-compactor-nav-icon` 标记，只改一次。
   **不打核心补丁**：那套在 DSH runtime 重新解包、`pnpm install`、或别的插件装卸自己
   的补丁时会被冲掉（runtime 下那一堆 `.dsh-*.bak` 就是历次被冲的遗物），而且每次都要
   重跑。运行时 Pin 刷新页面即生效、无需重启、升级也不丢。补丁脚本已从仓库移除。
@@ -148,7 +148,7 @@ retainRatio: 0.16               # 保留最近 16% 的原样对话
 maxTokens: 12288                # 总结调用生成上限（详细预算）
 compactionRetries: 1            # 一次压力压缩后仍超阈值时的追加尝试
 maxOverflowRetries: 2           # context-overflow 恢复重试上限
-saveSummaryFile: true           # 总结额外落盘到 ~/.dsh/storages/dsh-context-compactor/summaries/
+saveSummaryFile: true           # 总结额外落盘到 ~/.dsh/storages/dsh-session-compactor/summaries/
 pruneToolResults: true          # 只裁剪超大工具结果；对话历史一律走总结
 pruneThresholdChars: 8192
 pruneHeadChars: 4096
@@ -182,7 +182,7 @@ modelPolicies:
 
 ### 热更新设置（liveSettings，0.6.2 新增）
 
-`liveSettings: true`（默认）时插件会注册 settings namespace **`dsh-context-compactor`**，暴露 5 个运行时可调项：
+`liveSettings: true`（默认）时插件会注册 settings namespace **`dsh-session-compactor`**，暴露 5 个运行时可调项：
 
 | 键 | 说明 |
 | --- | --- |
@@ -200,7 +200,7 @@ modelPolicies:
 
 | 补丁 | 原始思路 | 在本插件里的落地 |
 | --- | --- | --- |
-| 1 长文本防丢 | `add(prevent_compaction=True)` 分块保存超大文本，避免压缩/截断丢失 | 压缩前把 **>200KB 的超大工具结果**原样分块落盘到 `~/.dsh/storages/dsh-context-compactor/preserved/<session>/<seq>.<callId>.part-N.md`，磁盘保留索引，幂等防重复；完整原文绝不因 80% 压缩或工具裁剪而丢 |
+| 1 长文本防丢 | `add(prevent_compaction=True)` 分块保存超大文本，避免压缩/截断丢失 | 压缩前把 **>200KB 的超大工具结果**原样分块落盘到 `~/.dsh/storages/dsh-session-compactor/preserved/<session>/<seq>.<callId>.part-N.md`，磁盘保留索引，幂等防重复；完整原文绝不因 80% 压缩或工具裁剪而丢 |
 | 2 压力感知 | `recall(context_pressure=…)` 高压少召回、低压多召回 | `compactIfNeeded` 计算上下文压力 `totalTokens/window`；压力 >0.9 时跳过最宽松总结预算、压缩得更狠；把压力写进日志与 checkpoint 文件头 |
 | 3 每日定时反思 | `scheduled_daily_reflection()` 24h 冷却，定时把核心记忆总结存回 | 新增 `/reflect` 命令 + 后台调度器：非破坏性对全部消息跑「全局详细总结」，**追加**写 `reflections/<session>.md`；默认 24h 冷却 + 每会话新增 ≥20k tokens 才触发 |
 | 4 工具截断追踪 | `record_tool_result` 表记录被截断的调用 | 每次 `ToolResultPruner.pruneSession` 后把被裁剪的结果写成一行 JSON（`tool_name/args_summary/result_size/was_truncated/created_at`）追加到 `truncations.jsonl`；`/truncations` 可查，发现 `result_size` 小于原始输出就应改用分块方式重读 |
@@ -247,39 +247,39 @@ DSH 的 `dsh-web-app` 会禁用宿主层的压缩后端，压缩由每个 **agen
 
 ## 安装
 
-本插件的正式包名是 `@dsh-external/dsh-context-compactor`，已声明
+本插件的正式包名是 `dsh-session-compactor`，已声明
 `dsh.bundle.patch`，因此用 `dsh plugin --profile <profile> add <spec>` 安装后会被
 自动挂成该 profile 的 layer（写进 `dsh.profile.bundles`），无需再手工配置。
 
 ### 方式一：本地 tar 包（最直接）
 
 先构建出可安装的 tgz（或直接用仓库根目录已生成的
-`dsh-external-dsh-context-compactor-<version>.tgz`）：
+`dsh-external-dsh-session-compactor-<version>.tgz`）：
 
 ```bash
-cd /path/to/dsh-context-compactor
+cd /path/to/dsh-session-compactor
 pnpm pack
-# 输出：dsh-external-dsh-context-compactor-0.6.0.tgz
+# 输出：dsh-external-dsh-session-compactor-0.6.0.tgz
 ```
 
 然后安装：
 
 ```bash
-dsh plugin --profile web add /path/to/dsh-context-compactor/dsh-external-dsh-context-compactor-0.6.0.tgz
+dsh plugin --profile web add /path/to/dsh-session-compactor/dsh-external-dsh-session-compactor-0.6.0.tgz
 ```
 
 ### 方式二：本地源码目录
 
 ```bash
-dsh plugin --profile web add /path/to/dsh-context-compactor
+dsh plugin --profile web add /path/to/dsh-session-compactor
 ```
 
 ### 方式三：Git（SSH / HTTPS）
 
 ```bash
-dsh plugin --profile web add git+git@github.com:huiikeung/dsh-context-compactor.git
+dsh plugin --profile web add git+git@github.com:huiikeung/dsh-session-compactor.git
 # 或 HTTPS：
-dsh plugin --profile web add git+https://github.com/huiikeung/dsh-context-compactor.git
+dsh plugin --profile web add git+https://github.com/huiikeung/dsh-session-compactor.git
 ```
 
 > Git/本地路径安装时，pnpm 会执行包的 `prepare` 脚本自动完成 `src → lib` 构建；
@@ -295,7 +295,7 @@ dsh plugin --profile web add git+https://github.com/huiikeung/dsh-context-compac
 ### 撤销安装
 
 ```bash
-dsh plugin --profile web remove @dsh-external/dsh-context-compactor
+dsh plugin --profile web remove dsh-session-compactor
 ```
 
 ### 手动 / 开发模式（可选，非必须）

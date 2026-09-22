@@ -1,5 +1,5 @@
 /**
- * dsh-context-compactor 0.6.2 热更新链路冒烟测试：
+ * dsh-session-compactor 0.6.2 热更新链路冒烟测试：
  * apply() → installLiveSettings → settings.register(schema).watch → LIVE_KNOBS
  * → DetailedCompactionEngine.prototype._syncLiveKnobs / _summaryInstruction
  */
