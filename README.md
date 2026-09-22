@@ -115,11 +115,15 @@ modelPolicies:
   刚进去还在读宿主文档时显示「正在读取设置…」；
 - **侧栏图标**：DSH 的设置分页图标走核心里一张硬编码的 `id → 图标` 表
   （`navIcon(id)`，`settings.section` 的 slot 契约里没有 icon 字段），第三方分页
-  一律落回通用齿轮。本插件用 `scripts/patch-sidebar-icon.mjs` 给这张表补了一条
-  `context-compactor → IconCompactOutline16`（圆环+弧线，和「上下文用量」圆环同源），
-  与 dsh-search 给「联网搜索」打 globe 补丁同一套做法；**幂等**，首次打补丁会在
-  同目录留 `.dsh-context-compactor.bak`，**DSH 升级后需重跑**。
-  补丁只动客户端 bundle，刷新页面即生效，不用重启 dsh；
+  一律落回通用齿轮。本插件用**运行时 Pin** 解决：`src/client/index.cjs` 的
+  `pinNavGlyph()` 在浏览器里按「导航格标签文本」找到自己的 cell，原地改写那个
+  `<svg>` 的几何（保留外壳给的元素/类名/尺寸，不依赖它的哈希类名），并用
+  MutationObserver 应对外壳重渲染导航时把齿轮换回来的情况；svg 上打
+  `data-context-compactor-nav-icon` 标记，只改一次。
+  之所以不打核心补丁：那套在 DSH runtime 重新解包、`pnpm install`、或别的插件装卸
+  自己的补丁时会被冲掉（本仓库 `scripts/patch-sidebar-icon.mjs` 与 runtime 下的一堆
+  `.dsh-*.bak` 就是历次被冲的证据），而且每次都要重跑。运行时 Pin 刷新页面即生效、
+  无需重启，升级也不丢。该补丁脚本保留仅作回退。
 - **0.6.9 修复「设置页一片空白」**：`React.useSyncExternalStore` 是以**裸函数**
   调用 `subscribe`/`getSnapshot` 的（`this` 会丢），而 `settingsScope.bind()` 返回的
   控制器是 class 实例、方法内部读 `this.store` —— 直接把 `scope.subscribe` /

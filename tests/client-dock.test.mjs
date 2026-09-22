@@ -389,6 +389,75 @@ class FakeSettingsScope {
   check('用户层有值时 placeholder 仍在 DOM 里（浏览器不显示而已）', html2.includes('placeholder="你是「全局上下文总结压缩引擎」'))
 }
 
+
+/* ------------------------------------------------------------------ *
+ * 7) 设置侧栏图标：运行时 Pin（不再依赖给核心 bundle 打补丁）
+ *    用假 DOM 驱动 bundle 里的 apply()，验证「按导航标签找 cell → 原地换 svg 几何」。
+ * ------------------------------------------------------------------ */
+{
+  const src = readFileSync(bundlePath, 'utf8')
+
+  /** 最小假 DOM：只实现 pinNavGlyph / installStyles 用到的部分。 */
+  function makeFakeDocument(cells) {
+    const attrs = new Map()
+    const mkSvg = () => ({
+      _attrs: {},
+      getAttribute(k) { return Object.hasOwn(this._attrs, k) ? this._attrs[k] : null },
+      setAttribute(k, v) { this._attrs[k] = String(v) },
+      innerHTML: '',
+    })
+    const mkCell = (label) => {
+      const svg = mkSvg()
+      return { textContent: label, _svg: svg, querySelector: (sel) => (sel === 'svg' ? svg : null) }
+    }
+    const doc = {
+      _attrs: attrs,
+      head: { appendChild: () => {} },
+      createElement: () => ({ dataset: {}, set textContent(v) {}, }),
+      querySelector: (sel) => (sel === '[role="dialog"]' ? {} : null),
+      querySelectorAll: (sel) => (sel === '[role="dialog"] nav button' ? cells : []),
+    }
+    return { doc, mkCell, mkSvg }
+  }
+
+  const ours = { textContent: ' 上下文压缩 ', ...(() => { const s = { _attrs: {}, getAttribute(k) { return Object.hasOwn(this._attrs, k) ? this._attrs[k] : null }, setAttribute(k, v) { this._attrs[k] = String(v) }, innerHTML: '' }; return { _svg: s } })() }
+  ours.querySelector = (sel) => (sel === 'svg' ? ours._svg : null)
+  const other = { textContent: '模型', _svg: { _attrs: {}, getAttribute(k) { return Object.hasOwn(this._attrs, k) ? this._attrs[k] : null }, setAttribute(k, v) { this._attrs[k] = String(v) }, innerHTML: '' } }
+  other.querySelector = (sel) => (sel === 'svg' ? other._svg : null)
+
+  const { doc } = makeFakeDocument([other, ours])
+  const observers = []
+  globalThis.MutationObserver = class { constructor(cb) { this.cb = cb } observe() { observers.push(this) } }
+
+  const loaded = []
+  globalThis.__ModuleLoader__ = { load: (e) => loaded.push(e) }
+  new Function('window', 'document', src)(globalThis, doc)
+  const mod = loaded[0].factory((id) => {
+    if (id === 'react') return require('react')
+    if (id === 'react/jsx-runtime') return require('react/jsx-runtime')
+    if (id === '@deepseek-ai/dsh-client-ui-primitives') {
+      const R = require('react')
+      const stub = (tag) => (p) => R.createElement(tag, p, p.children)
+      return { IconEnhanceOutline16: stub('svg'), IconSparkle16: stub('svg'), Tooltip: stub('span') }
+    }
+    throw new Error('unexpected require: ' + id)
+  })
+  mod.apply({
+    slots: { inject(s, f) { f(); return () => {} }, register: (spec) => spec },
+    remote: { commands: {} },
+    settingsScope: { bind: () => new FakeSettingsScope() },
+    logger: { warn: () => {} },
+  })
+
+  check('自己的导航格 svg 被 Pin 成压缩环（viewBox 换成 16 网格）', ours._svg._attrs.viewBox === '0 0 16 16',
+    JSON.stringify(ours._svg._attrs))
+  check('Pin 后写入圆环 + 弧线几何', ours._svg.innerHTML.includes('circle') && ours._svg.innerHTML.includes('path'))
+  check('Pin 后打上标记属性（不会重复改写）', ours._svg._attrs['data-context-compactor-nav-icon'] === '1')
+  check('别人的导航格（模型）原封不动', Object.keys(other._svg._attrs).length === 0 && other._svg.innerHTML === '')
+  check('装了 MutationObserver 应对外壳重渲染', observers.length >= 1)
+  delete globalThis.MutationObserver
+}
+
 const failed = results.filter((r) => !r.ok)
 console.log('\n' + (results.length - failed.length) + '/' + results.length + ' passed')
 if (failed.length > 0) process.exit(1)

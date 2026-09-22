@@ -9,6 +9,11 @@
  * to get a real 「压缩」 glyph is this tiny core patch — same approach the
  * dsh-search plugin uses for its 联网搜索 section (web-tools → globe).
  *
+ * ⚠️ 已被**运行时 Pin** 取代：`src/client/index.cjs` 的 `pinNavGlyph()` 在浏览器里
+ * 按导航标签找到自己的 cell、原地换 svg 几何，DSH 升级 / pnpm install / 别的插件装卸
+ * 补丁都冲不掉（本目录下 `.dsh-*.bak` 的历任补丁就是这么丢的）。本脚本保留仅作回退：
+ * 只有在运行时 Pin 因外壳结构变动失效时，才需要跑它，并且跑完仍要刷新页面。
+ *
  * Idempotent; writes a `.dsh-context-compactor.bak` next to the file on first
  * patch. Re-run after every DSH runtime update.
  *

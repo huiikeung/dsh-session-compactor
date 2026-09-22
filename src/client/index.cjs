@@ -697,8 +697,62 @@ function compactResultText(result) {
   return text !== '' ? text : '压缩完成'
 }
 
+/**
+ * 设置侧栏图标的自 Pin（替代给核心打补丁）。
+ *
+ * `settings.section` 契约没有 icon 字段：核心只读 id/label/order，navIcon(id)
+ * 是硬编码映射，未知 id 一律落齿轮，市场插件也全是齿轮。给核心 bundle 打补丁
+ * 不可靠——DSH runtime 重新解包、或别的插件装卸自己的补丁，都会把它冲掉。
+ *
+ * 所以这里在运行时按「导航格标签文本」找到自己的 cell，原地改写那个 <svg>：
+ * 保留外壳给的元素/类名/尺寸，只换几何；不依赖外壳的哈希类名，DSH 升级也不怕。
+ * MutationObserver 应对外壳重渲染导航时把齿轮换回来的情况。
+ */
+function pinNavGlyph(labels, mark, glyph) {
+  if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return
+  const applyGlyph = () => {
+    // 便宜的前置判断：导航只在设置面板打开时才存在。
+    if (document.querySelector('[role="dialog"]') === null) return
+    const cells = Array.from(document.querySelectorAll('[role="dialog"] nav button'))
+    for (const cell of cells) {
+      // svg 不贡献文本，所以 textContent 就是导航标签。
+      if (labels.indexOf(cell.textContent.trim()) < 0) continue
+      const svg = cell.querySelector('svg')
+      if (svg === null || svg.getAttribute(mark) === '1') continue
+      // glyph() 是纯函数、返回标记：它在任何 DOM 变动之前跑完，所以抛错时
+      // 外壳自己的图标原封不动，不会把导航格清空。
+      let spec
+      try {
+        spec = glyph()
+      } catch (error) {
+        console.warn('[dsh-context-compactor] nav glyph failed; keeping the shell icon', error)
+        continue
+      }
+      svg.setAttribute('viewBox', spec.viewBox)
+      svg.setAttribute('fill', 'none')
+      if (spec.stroke) {
+        svg.setAttribute('stroke', spec.stroke)
+        svg.setAttribute('stroke-width', spec.strokeWidth || '1.6')
+        svg.setAttribute('stroke-linecap', 'round')
+        svg.setAttribute('stroke-linejoin', 'round')
+      }
+      svg.innerHTML = spec.markup
+      svg.setAttribute('aria-hidden', 'true')
+      svg.setAttribute(mark, '1')
+    }
+  }
+  applyGlyph()
+  new MutationObserver(applyGlyph).observe(document.body, { childList: true, subtree: true })
+}
+
 function apply(ctx) {
   installStyles()
+  // 设置侧栏图标：契约没有 icon 字段，不 Pin 就是齿轮。从这里 Pin，升级/装卸都不丢。
+  pinNavGlyph(['上下文压缩'], 'data-context-compactor-nav-icon', () => ({
+    viewBox: '0 0 16 16',
+    markup: '<circle cx="8" cy="8" r="6.4" stroke="currentColor" stroke-width="1.6" opacity="0.35"></circle>'
+      + '<path d="M8 1.6A6.4 6.4 0 0 1 14.4 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path>',
+  }))
   ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
     name: 'conversation.composer.dock',
     id: 'context-compact',
